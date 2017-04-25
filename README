@@ -1,0 +1,19 @@
+
+== track index usage ==
+
+-- gather some metrics from the tracking
+
+vsql-idx.pl
+vsql-idx.sh
+
+nohup ./vsql-idx.sh &
+
+
+-- current number of appearances in gv$sql_plan by an index
+
+cut -f5 -d, vsql-idx.csv| sort | uniq -c | sort -n
+cut -f5 -d, vsql-idx.csv| sort | uniq -c | sort -n | awk '{ if ($1 > 20) printf("%5d %s30\n", $1 ,$2) }'
+
+-- count of CT indexes that have so far appeared in gv$sql
+
+cut -f5 -d, vsql-idx.csv| sort -u | wc -l

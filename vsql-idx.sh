@@ -33,7 +33,7 @@ PATH=/usr/local/bin:$PATH
 # run every 5 minutes
 # do this for about a week
 
-maxIterations=2100
+maxIterations=2300
 
 while ( [[ $maxIterations > 0 ]] )
 do
