@@ -18,7 +18,7 @@ my $dbh = DBI->connect(
 
 die "Connect to  oracle failed \n" unless $dbh;
 
-my $debug=1;
+my $debug=0;
 
 
 sub seriesSum($);
@@ -91,35 +91,39 @@ if ($debug) {
 foreach my $el ( 0 .. $#tables ) {
 	my $tableName = $tables[$el];
 
+	my $debug=0;
+
+	print '#' x 120, "\n";
+	print "Working on table $tableName\n";
 
 	#$idxSth->execute($schema2Chk,$tableName);
 	$colSth->execute($schema2Chk, $schema2Chk, $tableName);
 
 	my %colData=();
-	my @indexes=();
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
 		my ($indexName,$columnList) = @{$colAry};
 
-		print "Cols:  $columnList\n";
+		#print "Cols:  $columnList\n";
 
 		push @{$colData{$indexName}},split(/,/,$columnList);
 
 	}
 
-	print 'Col Data: ', Dumper(\%colData);
+	my @indexes = sort keys %colData;
+	print 'Col Data: ', Dumper(\%colData) if $debug;
 
-	next;
+	#next;
 
 	my $indexCount = $#indexes + 1;
 
-	print Dumper(\%colData);
-	print Dumper(\@indexes);
+	print Dumper(\%colData) if $debug;
+	print Dumper(\@indexes) if $debug;
 
-	print "Index Count: $indexCount\n";
+	#print "Index Count: $indexCount\n";
 
 	my $numberOfComparisons = seriesSum($indexCount);
 
-	print "Number of Comparisons: $numberOfComparisons\n";
+	print "\tNumber of Comparisons to make: $numberOfComparisons\n";
 
 	my $indexesComparedCount=0;
 
@@ -131,8 +135,8 @@ foreach my $el ( 0 .. $#tables ) {
 
 			my $debug=0;
 
-			print '#' x 120, "\n";
-			print "Comparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
+			print "\t",'=' x 100, "\n";
+			print "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
 			$indexesComparedCount++;
 
 			print "IDX 1: ", Dumper($colData{$indexes[$idxBase]}) if $debug;
@@ -150,21 +154,23 @@ foreach my $el ( 0 .. $#tables ) {
 				print "INTERSECT: ", Dumper(\@intersection);
 			}
 
-			print "\nColumns found only in $indexes[$idxBase]\n";
-			print "\n\t", join("\n\t",sort @idx1Diff),"\n\n";
+			print "\n\tColumns found only in $indexes[$idxBase]\n";
+			print "\n\t\t", join("\n\t\t",sort @idx1Diff),"\n\n";
 
-			print "Columns found only in $indexes[$compIdx]\n";
-			print "\n\t", join("\n\t",sort @idx2Diff),"\n\n";
+			print "\tColumns found only in $indexes[$compIdx]\n";
+			print "\n\t\t", join("\n\t\t",sort @idx2Diff),"\n\n";
 
-			print "Columns found in both\n";
-			print "\n\t", join("\n\t",sort @intersection),"\n\n";
+			print "\tColumns found in both\n";
+			print "\n\t\t", join("\n\t\t",sort @intersection),"\n\n";
 
 
 
 		}
 	}
 
-	print "Total Comparisons Made: $indexesComparedCount\n";
+	print "\tTotal Comparisons Made: $indexesComparedCount\n\n";
+
+	print "\t!! Number of Comparisons made was $indexesComparedCount - should have been $numberOfComparisons !!\n" if ($numberOfComparisons != $indexesComparedCount );
 
 }
 
