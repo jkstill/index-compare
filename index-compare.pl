@@ -118,8 +118,17 @@ group by index_name
 order by index_name
 };
 
+# SQL to check the table of known used indexes
+my $idxChkSql = qq{select
+	index_name
+from $idxChkTable
+where index_name = ?
+};
+
+
 my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
 my $idxInfoSth = $dbh->prepare($idxInfoSql,{ora_check_sql => 0});
+my $idxChkSth = $dbh->prepare($idxChkSql,{ora_check_sql => 0});
 my $colSth = $dbh->prepare($colSql,{ora_check_sql => 0});
 
 =head1 %colData
@@ -269,6 +278,14 @@ foreach my $el ( 0 .. $#tables ) {
 				}
 				printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 				#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+
+				if ( isIdxUsed($idxChkSth,$leastIdxName) ) {
+					print "Index $leastIdxName is known to be used in Execution Plans\n";
+				}
+
+				if ( isIdxUsed($idxChkSth,$mostIdxName) ) {
+					print "Index $mostIdxName is known to be used in Execution Plans\n";
+				}
 
 				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
 					# check to see if either index is known to support a constraint
@@ -465,7 +482,7 @@ sub getIdxPairInfo($$$) {
 		
 		# idxInfoSql is global
 		#
-		print "DEB-DEBUG: index name: $idx\n";
+		#print "DBI-DEBUG: index name: $idx\n";
 
 		$sth->execute($schema, $schema, $idx);
 		#my ($indexName, $bytes, $constraintType) = $idxSth->fetchrow;
@@ -482,12 +499,23 @@ sub getIdxPairInfo($$$) {
 
 	}
 
-	print "DEBUG: getIdxPairInfo" , Dumper($idxHash);
+	#print "DEBUG: getIdxPairInfo" , Dumper($idxHash);
 
 }
 
 # check the usage table to see if the index is known to be used.
 sub isIdxUsed {
+	my $sth = shift;
+	my $idxName = shift;
+	$sth->execute($idxName);
+
+	my $result = $sth->fetchrow_arrayref;
+	$sth->finish;
+
+	#if ( defined($sth->fetchrow_arrayref)) { return 1 }
+	if (defined($result)){ return 1 }
+	else { return 0}
+
 }
 
 
