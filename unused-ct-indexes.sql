@@ -34,6 +34,7 @@ left outer join cons_idx idx on idx.table_name = i.table_name
 where i.owner = 'CT'
 and i.index_name not in (select * from avail.used_ct_indexes)
 and i.index_name not like 'SYS_%$$' -- LOB segments
+and i.index_name not like 'DR$%$%' -- Text indexes
 -- not going to rely on index naming convention
 --and index_name not like '%\_UK' escape '\'  -- Unique Keys - a fortunate naming convention
 --and index_name not like '%\_PK' escape '\'  -- Primary Keys - a fortunate naming convention
