@@ -1,35 +1,78 @@
 
+# run with $ORACLE_HOME/perl/bin/perl script-name
 
 use strict;
 use warnings;
 
 use DBI;
 use Data::Dumper;
+use Getopt::Long;
+
+my $debug=0;
+sub closeSession($);
+sub getPassword();
+sub seriesSum($);
+sub compareAry ($$$$$);
+
+
+my $db=undef; # left as undef for local sysdba connection
+# the --password option will not accept a password
+# but just indicates whether a password will be necessary
+# if required, the password will be requested
+my $getPassword=0;
+my $password=undef;
+my $username=undef;
+my $sysdba=0;
+my $schema2Chk = 'SCOTT';
+
+
+# simpler method of assigning defaults with Getopt::Long
+
+my $traceFile='- no file specified';
+my $opLineLen=80;
+my $help=0;
+
+GetOptions (
+		"database=s" => \$db,
+		"username=s" => \$username,
+		"schema=s" => \$schema2Chk,
+		"sysdba!" => \$sysdba,
+		"password!" => \$getPassword,
+		"h|help!" => \$help
+) or die usage(1);
+
+usage() if $help;
+
+$sysdba=2 if $sysdba;
+$schema2Chk = uc($schema2Chk);
+
+if ($getPassword) {
+	$password = getPassword();
+	#print "Password: $password\n";
+}
+
+if ($debug) {
+	print "Database: $db\n";
+	print "Username: $username\n";
+}
 
 my $dbh = DBI->connect(
-	'dbi:Oracle:oravm' ,
-	'sys', 'grok',
+	"dbi:Oracle:${db}" , 
+	$username,$password,
+	#$username, $password,
 	{
 		RaiseError => 1,
 		AutoCommit => 0,
-		ora_session_mode => 2
+		ora_session_mode => $sysdba
 	}
 	);
 
 die "Connect to  oracle failed \n" unless $dbh;
 
-my $debug=0;
 
 # some internal config stuff
 # let us know if this percent or more of leading indexes are shared
 my $idxRatioAlertThreshold = 75;
-
-sub seriesSum($);
-sub compareAry ($$$$$);
-
-
-my $schema2Chk = 'JKSTILL';
-#$schema2Chk = 'SQLTXPLAIN';
 
 my $tabSql = q{select
 table_name
@@ -83,11 +126,14 @@ $tabSth->execute($schema2Chk);
 my @tables;
 while ( my $table = $tabSth->fetchrow_arrayref) { push @tables, $table->[0]}
 
-die "No tables found for $schema2Chk!\n" unless @tables;
+unless (@tables) {
+	closeSession($dbh);
+	die "No tables found for $schema2Chk!\n";
+}
 
 if ($debug) {
 	print Dumper(\@tables);
-	#$dbh->disconnect;
+	# closeSession($dbh)
 	#exit;
 }
 
@@ -218,7 +264,7 @@ foreach my $el ( 0 .. $#tables ) {
 
 }
 
-$dbh->disconnect;
+closeSession($dbh);
 
 
 =head1 seriesSum
@@ -298,6 +344,59 @@ sub compareAry ($$$$$){
 	print 'Count: ', Dumper(\%count) if $debug;
 
 
+}
+
+sub usage {
+
+	my $exitVal = shift;
+	use File::Basename;
+	my $basename = basename($0);
+	print qq{
+$basename
+
+usage: $basename - analyze schema indexes for redundancy
+
+   $basename --database --username --password --schema scott
+
+  --database do not specify for local SYSDBA connection (ORACLE_SID must be set)
+  --schema   the database schema to analyze
+  --username do not specify for local SYSDBA connection
+  --password specifies that user will be asked for password
+             this option does NOT accept a password
+
+ --sysdba    connect as sysdba
+
+examples here:
+
+   $basename --schema SCOTT
+   $basename --schema SCOTT --database orcl --password --sysdba
+
+};
+
+	exit eval { defined($exitVal) ? $exitVal : 0 };
+}
+
+
+sub getPassword() {
+
+	local $SIG{__DIE__} = sub {system('stty','echo');print "I was killed\n"; die }; # killed
+	local $SIG{INT} = sub {system('stty','echo');print "I was interrupted\n"; die }; # CTL-C
+	local $SIG{QUIT} = sub {system('stty','echo');print "I was told to quit\n"; die }; # ctl-\
+
+	# this clearly does not work on non *nix systems
+	# Oracle Perl does not come with Term::ReadKey, so doing this hack instead
+	print "Enter password: ";
+	system('stty','-echo'); #Hide console input for what we type
+	chomp(my $password=<STDIN>);
+	system('stty','echo'); #Unhide console input for what we type
+	print "\n";
+	return $password;
+}
+
+sub closeSession ($) {
+	my $dbh = shift;
+	$dbh->rollback;
+	$dbh->disconnect;
 }
 
 
