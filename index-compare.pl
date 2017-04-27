@@ -20,12 +20,16 @@ die "Connect to  oracle failed \n" unless $dbh;
 
 my $debug=0;
 
+# some internal config stuff
+# let us know if this percent or more of leading indexes are shared
+my $idxRatioAlertThreshold = 75;
 
 sub seriesSum($);
 sub compareAry ($$$$$);
 
 
 my $schema2Chk = 'JKSTILL';
+#$schema2Chk = 'SQLTXPLAIN';
 
 my $tabSql = q{select
 table_name
@@ -137,6 +141,11 @@ foreach my $el ( 0 .. $#tables ) {
 
 			print "\t",'=' x 100, "\n";
 			print "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
+
+			print "\n\tColumn Lists:\n";
+			printf("\t %30s: %-200s\n", $indexes[$idxBase], join(' , ', @{$colData{$indexes[$idxBase]}}));
+			printf("\t %30s: %-200s\n", $indexes[$compIdx], join(' , ', @{$colData{$indexes[$compIdx]}}));
+
 			$indexesComparedCount++;
 
 			print "IDX 1: ", Dumper($colData{$indexes[$idxBase]}) if $debug;
@@ -163,7 +172,42 @@ foreach my $el ( 0 .. $#tables ) {
 			print "\tColumns found in both\n";
 			print "\n\t\t", join("\n\t\t",sort @intersection),"\n\n";
 
+			my @idxCols1 = @{$colData{$indexes[$idxBase]}};
+			my @idxCols2 = @{$colData{$indexes[$compIdx]}};
 
+			# get least number of column count
+			my ($leastColCount, $mostColCount);
+			my ($leastIdxName, $mostIdxName);
+
+			if ( $#idxCols1 < $#idxCols2 ) {
+				$leastColCount = $#idxCols1;
+				$mostColCount = $#idxCols2;
+				$leastIdxName = $indexes[$idxBase];
+				$mostIdxName = $indexes[$compIdx];
+			} else {
+				$leastColCount = $#idxCols2;
+				$mostColCount = $#idxCols1;
+				$leastIdxName = $indexes[$compIdx];
+				$mostIdxName = $indexes[$idxBase];
+			};
+
+			my $leadingColCount = 0;
+			foreach my $colID ( 0 .. $leastColCount ) {
+				last unless ( $idxCols1[$colID] eq $idxCols2[$colID]);
+				$leadingColCount++;
+			}
+
+			if ($leadingColCount > 0 ) {
+				my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
+				my $leastIdxNameLen = length($leastIdxName);
+				my $mostIdxNameLen = length($mostIdxName);
+				my $attention='';
+				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
+					$attention = '====>>>> ';
+				}
+				printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+				#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+			}
 
 		}
 	}
