@@ -13,6 +13,7 @@ sub closeSession($);
 sub getPassword();
 sub seriesSum($);
 sub compareAry ($$$$$);
+sub getIdxPairInfo($$$);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -25,8 +26,12 @@ my $username=undef;
 my $sysdba=0;
 my $schema2Chk = 'SCOTT';
 
+# the table containing the names of known used indexes
+my $idxChkTable='avail.used_ct_indexes';
 
-# simpler method of assigning defaults with Getopt::Long
+
+# let us know if this percent or more of leading indexes are shared
+my $idxRatioAlertThreshold = 75;
 
 my $traceFile='- no file specified';
 my $opLineLen=80;
@@ -36,6 +41,7 @@ GetOptions (
 		"database=s" => \$db,
 		"username=s" => \$username,
 		"schema=s" => \$schema2Chk,
+		"index-ratio-alert-threshold=i" => \$idxRatioAlertThreshold,
 		"sysdba!" => \$sysdba,
 		"password!" => \$getPassword,
 		"h|help!" => \$help
@@ -70,10 +76,6 @@ my $dbh = DBI->connect(
 die "Connect to  oracle failed \n" unless $dbh;
 
 
-# some internal config stuff
-# let us know if this percent or more of leading indexes are shared
-my $idxRatioAlertThreshold = 75;
-
 my $tabSql = q{select
 table_name
 from dba_tables
@@ -82,13 +84,28 @@ where owner = ?
 order by table_name
 };
 
-my $idxSql = q{select
-index_name
-from dba_indexes
-where owner = ?
-	and table_name = ? 
-	and index_name not like 'SYS_%$$' -- LOB segments
-order by index_name
+my $idxInfoSql = q{with cons_idx as (
+   select /*+ no_merge */
+      table_name, index_name , constraint_name, constraint_type
+   from dba_constraints
+   where owner = ?
+   and constraint_type in ('R','U','P')
+   and index_name is not null
+), 
+-- going to assume all tablespaces are db_block_size
+block_size as (
+	select value block_size from v$parameter where name = 'db_block_size'
+)
+select i.table_name, i.index_name
+   , i.leaf_blocks * bs.block_size bytes
+   , nvl(idx.constraint_name , 'NONE') constraint_name
+   , nvl(idx.constraint_type , 'NONE') constraint_type
+from dba_indexes i
+natural join block_size bs
+left outer join cons_idx idx on idx.table_name = i.table_name
+   and idx.index_name = i.index_name
+where i.owner = ?
+	and i.index_name = ?
 };
 
 my $colSql = q{select
@@ -102,7 +119,7 @@ order by index_name
 };
 
 my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
-my $idxSth = $dbh->prepare($idxSql,{ora_check_sql => 0});
+my $idxInfoSth = $dbh->prepare($idxInfoSql,{ora_check_sql => 0});
 my $colSth = $dbh->prepare($colSql,{ora_check_sql => 0});
 
 =head1 %colData
@@ -146,7 +163,6 @@ foreach my $el ( 0 .. $#tables ) {
 	print '#' x 120, "\n";
 	print "Working on table $tableName\n";
 
-	#$idxSth->execute($schema2Chk,$tableName);
 	$colSth->execute($schema2Chk, $schema2Chk, $tableName);
 
 	my %colData=();
@@ -253,6 +269,40 @@ foreach my $el ( 0 .. $#tables ) {
 				}
 				printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 				#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+
+				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
+					# check to see if either index is known to support a constraint
+					my %idxPairInfo = (
+						$leastIdxName => undef,
+						$mostIdxName => undef
+					);
+					getIdxPairInfo($schema2Chk,$idxInfoSth,\%idxPairInfo);
+					#print Dumper(\%idxPairInfo);
+
+
+					# report if any constraints use one or both of the indexes
+					foreach my $idxName ( keys %idxPairInfo ) {
+						# only 4 possibilities at this time - NONE, R, U, and P
+						my ($idxBytes, $constraintName, $constraintType) = @{$idxPairInfo{$idxName}};
+
+						my $idxNameLen = length($idxName);
+						printf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
+
+						if ( $constraintType eq 'NONE' ) {
+							print "The index $idxName does not appear to support any constraints\n";
+						} elsif ( $constraintType eq 'R' ) { # foreign key
+								print "The index $idxName supports Foreign Key $constraintName\n";
+						} elsif ( $constraintType eq 'U' ) { # unique key
+								print "The index $idxName supports Unique Key $constraintName\n";
+						} elsif ( $constraintType eq 'P' ) { # primary key
+								print "The index $idxName supports Primary Key $constraintName\n";
+						} else { 
+							warn "Unknown Constraint type of $constraintType!\n";
+						}
+
+					}
+				}
+
 			}
 
 		}
@@ -364,6 +414,11 @@ usage: $basename - analyze schema indexes for redundancy
   --password specifies that user will be asked for password
              this option does NOT accept a password
 
+  --index-ratio-alert-threshold 
+             the threshold at which to report on 2 indexes having the same leading columns
+             default is 75 - if 75% of the leading columns of the index with the least number 
+             of columns are the same as the other column, provide extra reporting.
+
  --sysdba    connect as sysdba
 
 examples here:
@@ -398,5 +453,50 @@ sub closeSession ($) {
 	$dbh->rollback;
 	$dbh->disconnect;
 }
+
+sub getIdxPairInfo($$$) {
+	my $schema = shift;
+	my $sth = shift;
+	my $idxHash = shift;
+
+	# prepopulated with 2 index names as keys
+	# and array containing schema name
+	foreach my $idx ( keys %{$idxHash} ) {
+		
+		# idxInfoSql is global
+		#
+		print "DEB-DEBUG: index name: $idx\n";
+
+		$sth->execute($schema, $schema, $idx);
+		#my ($indexName, $bytes, $constraintType) = $idxSth->fetchrow;
+		#push @{$idxHash->{$idx}}, $sth->fetchrow_arrayref;
+
+		while (my $ary = $sth->fetchrow_arrayref ) {
+			#print "DBI-DEBUG: ", join(' - ', @{$ary}), "\n";
+			# bytes, constraint_name, constraint_type
+			push @{$idxHash->{$idx}}, ($ary->[2], $ary->[3], $ary->[4]);
+			
+		}
+		$sth->finish;
+
+
+	}
+
+	print "DEBUG: getIdxPairInfo" , Dumper($idxHash);
+
+}
+
+# check the usage table to see if the index is known to be used.
+sub isIdxUsed {
+}
+
+
+
+
+
+
+
+
+
 
 
