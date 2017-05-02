@@ -7,6 +7,7 @@ use warnings;
 use DBI;
 use Data::Dumper;
 use Getopt::Long;
+use IO::File;
 
 my $debug=0;
 sub closeSession($);
@@ -14,6 +15,7 @@ sub getPassword();
 sub seriesSum($);
 sub compareAry ($$$$$);
 sub getIdxPairInfo($$$);
+sub csvPrint($$$$);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -25,10 +27,34 @@ my $password=undef;
 my $username=undef;
 my $sysdba=0;
 my $schema2Chk = 'SCOTT';
+my $csvFile=undef;
+my $csvDelimiter=',';
+my $colnameDelimiter='|'; # used to separate columns and SQL statements in the CSV output field - must be different than csvDelimiter
+my $csvOut=0;
+
+my %csvColByID = (
+	0	=>"Table Name",
+	1	=>"Index Name",
+	2	=>"Compared To",
+	3	=>"Size",
+	4	=>"Constraint Type",
+	5	=>"Redundant",
+	6	=>"Column Dup%",
+	7	=>"Known Used",
+	8	=>"Drop Candidate",
+	9	=>"Drop Immediately",
+	10	=>"Create ColGroup",
+	11	=>"Columns", # must always be penultimate field
+	12	=>"SQL", # must always be last field
+);
+
+my %csvColByName = map { $csvColByID{$_} => $_ } keys %csvColByID;
+
+#print 'csvColByID ' . Dumper(\%csvColByID);
+#print 'csvColByName: ' . Dumper(\%csvColByName);
 
 # the table containing the names of known used indexes
 my $idxChkTable='avail.used_ct_indexes';
-
 
 # let us know if this percent or more of leading indexes are shared
 my $idxRatioAlertThreshold = 75;
@@ -42,6 +68,9 @@ GetOptions (
 		"username=s" => \$username,
 		"schema=s" => \$schema2Chk,
 		"index-ratio-alert-threshold=i" => \$idxRatioAlertThreshold,
+		"csv-file=s" => \$csvFile,
+		"csv-delimiter=s" => \$csvDelimiter,
+		"column-delimiter=s" => \$colnameDelimiter,
 		"sysdba!" => \$sysdba,
 		"password!" => \$getPassword,
 		"h|help!" => \$help
@@ -60,6 +89,32 @@ if ($getPassword) {
 if ($debug) {
 	print "Database: $db\n";
 	print "Username: $username\n";
+}
+
+$csvOut = defined($csvFile) ? 1 : 0;
+
+if ($csvDelimiter eq $colnameDelimiter ) {
+	print "CSV delimiter must be different than column delimiter\n";
+	exit 1;
+}
+
+my $csvFH=undef;
+if ($csvOut) {
+	$csvFH = IO::File->new($csvFile,'w');
+	die "Could not create $csvFile\n" unless $csvFH;
+}
+
+if ($csvOut) {
+
+	my @header = map { $csvColByID{$_} } sort { $a <=> $b } keys %csvColByID;
+	#print 'Header : ' , Dumper(\@header);
+
+	my $SQL = pop @header;
+	my $colNames = pop @header;
+	push @header, [$colNames];
+	push @header, [$SQL];
+
+	csvPrint($csvFH,$csvDelimiter,$colnameDelimiter,\@header);
 }
 
 my $dbh = DBI->connect(
@@ -438,6 +493,10 @@ usage: $basename - analyze schema indexes for redundancy
 
  --sysdba    connect as sysdba
 
+ --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
+ --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
+ --column-delimiter  Delimiter to separate column names in CSV field for index column names - defaults to |
+
 examples here:
 
    $basename --schema SCOTT
@@ -518,7 +577,42 @@ sub isIdxUsed {
 
 }
 
+=head1 csvPrint
 
+ Print to CSV file
+ pass the file handle, csv delimiter, columm/sql delimiter and array ref of data
+ the last two elements in the array are array refs (column names an SQL statements
+
+
+=cut
+
+
+sub csvPrint($$$$) {
+	my $fh = shift;
+	my $csvDelimiter = shift;
+	my $colnameDelimiter = shift;
+	my $ary = shift;
+
+	#print 'ary: ', Dumper($ary);
+
+	my $lastEl = $#{$ary};
+
+	#print "DEBUG - lastEl: $lastEl\n";
+	#print 'ary: ', Dumper($ary->[$lastEl-1]);
+
+	my $colNames = join("$colnameDelimiter",@{$ary->[$lastEl-1]});
+	my $sqlStatements = join("$colnameDelimiter",@{$ary->[$lastEl]});
+
+
+	#print $fh join($csvDelimiter,@{$ary->[0..($lastEl-2)]});
+	print $fh join($csvDelimiter,@{$ary}[0..($lastEl-2)]),$csvDelimiter;
+	# print Column names
+	print $fh "${colNames}" if defined($colNames);
+	print $fh $csvDelimiter;
+	# print SQL
+	print $fh "${sqlStatements}\n";
+
+}
 
 
 
