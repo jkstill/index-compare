@@ -72,6 +72,7 @@ GetOptions (
 		"csv-delimiter=s" => \$csvDelimiter,
 		"column-delimiter=s" => \$colnameDelimiter,
 		"sysdba!" => \$sysdba,
+		"debug!" => \$debug,
 		"password!" => \$getPassword,
 		"h|help!" => \$help
 ) or die usage(1);
@@ -126,7 +127,7 @@ my $dbh = DBI->connect(
 		AutoCommit => 0,
 		ora_session_mode => $sysdba
 	}
-	);
+);
 
 die "Connect to  oracle failed \n" unless $dbh;
 
@@ -218,11 +219,15 @@ if ($debug) {
 	#exit;
 }
 
+my $csvInclude = $csvOut ? 1 : 0;
+# indexes will be included in CSV output when the idxRatioAlertThreshold is met
+my %csvIndexes=(); 
+
 # start of main loop - process tables
 foreach my $el ( 0 .. $#tables ) {
 	my $tableName = $tables[$el];
 
-	my $debug=0;
+	#my $debug=0;
 
 	print '#' x 120, "\n";
 	print "Working on table $tableName\n";
@@ -256,14 +261,17 @@ foreach my $el ( 0 .. $#tables ) {
 	print "\tNumber of Comparisons to make: $numberOfComparisons\n";
 
 	my $indexesComparedCount=0;
+	my @idxInfo=(); # temp storage for data to put in %csvIndexes
 
 	# compare from first index to penultimate index as first of a pair to compare
 	for (my $idxBase=0; $idxBase < ($indexCount-1); $idxBase++ ) {
+
+
 		# start with first index, compare columns to the rest of the indexes
 		# then go to next index and compare to successive indexes
 		for (my $compIdx=$idxBase+1; $compIdx < ($indexCount); $compIdx++ ) {
 
-			my $debug=0;
+			#my $debug=0;
 
 			print "\t",'=' x 100, "\n";
 			print "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
@@ -323,23 +331,48 @@ foreach my $el ( 0 .. $#tables ) {
 				$leadingColCount++;
 			}
 
+			$idxInfo[$csvColByName{'Table Name'}] = $tableName;
+			$idxInfo[$csvColByName{'Index Name'}] = $indexes[$idxBase];
+			$idxInfo[$csvColByName{'Compared To'}] = $indexes[$compIdx];
+			$idxInfo[$csvColByName{'Size'}] = 0; # only populated if a drop candidate
+			$idxInfo[$csvColByName{'Constraint Type'}] = 0; # only populated if a drop candidate
+			$idxInfo[$csvColByName{'Redundant'}] = 'N';
+			$idxInfo[$csvColByName{'Column Dup%'}] = 0;
+			$idxInfo[$csvColByName{'Known Used'}] = 'N';
+			$idxInfo[$csvColByName{'Drop Candidate'}] = 'N';
+			$idxInfo[$csvColByName{'Drop Immediately'}] = 'N';
+			$idxInfo[$csvColByName{'Create ColGroup'}] = 'NA';
+			$idxInfo[$csvColByName{'Columns'}] = $colData{$indexes[$idxBase]};
+			$idxInfo[$csvColByName{'SQL'}] = [];
+
+
 			if ($leadingColCount > 0 ) {
 				my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
 				my $leastIdxNameLen = length($leastIdxName);
 				my $mostIdxNameLen = length($mostIdxName);
 				my $attention='';
+
+				$idxInfo[$csvColByName{'Redundant'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+				$idxInfo[$csvColByName{'Column Dup%'}] = $leastColSimilarCountRatio;
+				$idxInfo[$csvColByName{'Drop Immediately'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+
 				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
 					$attention = '====>>>> ';
+					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 				}
 				printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 				#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 
-				if ( isIdxUsed($idxChkSth,$leastIdxName) ) {
-					print "Index $leastIdxName is known to be used in Execution Plans\n";
+
+				if ( isIdxUsed($idxChkSth,$indexes[$idxBase]) ) {
+					print "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
+					$idxInfo[$csvColByName{'Known Used'}] = 'Y';
+				} else {
+					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 				}
 
-				if ( isIdxUsed($idxChkSth,$mostIdxName) ) {
-					print "Index $mostIdxName is known to be used in Execution Plans\n";
+				if ( isIdxUsed($idxChkSth,$indexes[$compIdx]) ) {
+					print "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
 				}
 
 				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
@@ -356,9 +389,14 @@ foreach my $el ( 0 .. $#tables ) {
 					foreach my $idxName ( keys %idxPairInfo ) {
 						# only 4 possibilities at this time - NONE, R, U, and P
 						my ($idxBytes, $constraintName, $constraintType) = @{$idxPairInfo{$idxName}};
-
+						
 						my $idxNameLen = length($idxName);
 						printf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
+
+						if ($idxName eq $indexes[$idxBase] ) {
+							$idxInfo[$csvColByName{'Size'}] = $idxBytes;
+							$idxInfo[$csvColByName{'Constraint Type'}] = $constraintType;
+						}
 
 						if ( $constraintType eq 'NONE' ) {
 							print "The index $idxName does not appear to support any constraints\n";
@@ -371,14 +409,14 @@ foreach my $el ( 0 .. $#tables ) {
 						} else { 
 							warn "Unknown Constraint type of $constraintType!\n";
 						}
-
 					}
 				}
-
 			}
-
 		}
+		$csvIndexes{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] } = \@idxInfo;
+		print 'idxInfo: ' , Dumper(\@idxInfo);
 	}
+
 
 	print "\tTotal Comparisons Made: $indexesComparedCount\n\n";
 
@@ -387,6 +425,14 @@ foreach my $el ( 0 .. $#tables ) {
 }
 
 closeSession($dbh);
+
+print 'csvIndexes: ' , Dumper(\%csvIndexes);
+
+if ( $csvOut ) {
+	foreach my $tabIdx ( sort keys %csvIndexes ) {
+		csvPrint($csvFH,$csvDelimiter,$colnameDelimiter,$csvIndexes{$tabIdx});
+	}
+}
 
 
 =head1 seriesSum
@@ -433,7 +479,7 @@ sub seriesSum ($){
 sub compareAry ($$$$$){
 	my ($ary1, $ary2, $intersect, $ary1Diff, $ary2Diff) = @_;
 	
-	my $debug = 0;
+	#my $debug = 0;
 
 	print "Array 1:", Dumper($ary1) if $debug;
 	print "Array 2:", Dumper($ary2) if $debug;
@@ -487,24 +533,24 @@ usage: $basename - analyze schema indexes for redundancy
              this option does NOT accept a password
 
   --index-ratio-alert-threshold 
-             the threshold at which to report on 2 indexes having the same leading columns
-             default is 75 - if 75% of the leading columns of the index with the least number 
-             of columns are the same as the other column, provide extra reporting.
+					 the threshold at which to report on 2 indexes having the same leading columns
+					 default is 75 - if 75% of the leading columns of the index with the least number 
+					 of columns are the same as the other column, provide extra reporting.
 
- --sysdba    connect as sysdba
+	 --sysdba    connect as sysdba
 
- --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
- --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
- --column-delimiter  Delimiter to separate column names in CSV field for index column names - defaults to |
+	 --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
+	 --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
+	 --column-delimiter  Delimiter to separate column names in CSV field for index column names - defaults to |
 
-examples here:
+	examples here:
 
-   $basename --schema SCOTT
-   $basename --schema SCOTT --database orcl --password --sysdba
+		$basename --schema SCOTT
+		$basename --schema SCOTT --database orcl --password --sysdba
 
-};
+	};
 
-	exit eval { defined($exitVal) ? $exitVal : 0 };
+		exit eval { defined($exitVal) ? $exitVal : 0 };
 }
 
 
