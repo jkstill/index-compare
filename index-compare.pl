@@ -165,13 +165,17 @@ where i.owner = ?
 };
 
 my $colSql = q{select
-	index_name, listagg(column_name,',') within group (order by column_position) column_list
-from dba_ind_columns
-where index_owner = ?
-	and table_owner = ?
-	and table_name = ?
-group by index_name
-order by index_name
+	ic.index_name, listagg(ic.column_name,',') within group (order by ic.column_position) column_list
+from dba_ind_columns ic
+join dba_indexes i
+	on i.owner = ic.index_owner
+	and i.index_name = ic.index_name
+	and i.index_type in ('NORMAL')
+where ic.index_owner = ?
+	and ic.table_owner = ?
+	and ic.table_name = ?
+group by ic.index_name
+order by ic.index_name
 };
 
 # SQL to check the table of known used indexes
@@ -346,7 +350,7 @@ foreach my $el ( 0 .. $#tables ) {
 			$idxInfo[$csvColByName{'SQL'}] = [];
 
 
-			if ($leadingColCount > 0 ) {
+			#if ($leadingColCount > 0 ) {
 				my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
 				my $leastIdxNameLen = length($leastIdxName);
 				my $mostIdxNameLen = length($mostIdxName);
@@ -375,7 +379,7 @@ foreach my $el ( 0 .. $#tables ) {
 					print "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
 				}
 
-				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
+				#if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
 					# check to see if either index is known to support a constraint
 					my %idxPairInfo = (
 						$leastIdxName => undef,
@@ -410,8 +414,8 @@ foreach my $el ( 0 .. $#tables ) {
 							warn "Unknown Constraint type of $constraintType!\n";
 						}
 					}
-				}
-			}
+					#}
+				#}
 		}
 
 		print qq{
