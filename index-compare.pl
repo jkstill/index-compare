@@ -166,7 +166,7 @@ where i.owner = ?
 
 # indexes ordered so that those support unique and primary constraints are considered last
 my $colSql = q{with cons_idx as (
-   select /*+ no_merge */
+   select /*+ no_merge no_push_pred */
       table_name, index_name , constraint_name, constraint_type
    from dba_constraints
    where owner = ?
@@ -175,7 +175,7 @@ my $colSql = q{with cons_idx as (
    	and index_name is not null
 ), 
 idxinfo as (
-	select
+	select /*+ no_merge no_push_pred */
 		ic.index_name
 		, nvl(cons.constraint_type , 'NONE') constraint_type
 		, listagg(ic.column_name,',') within group (order by ic.column_position) column_list
@@ -265,28 +265,35 @@ foreach my $el ( 0 .. $#tables ) {
 	$colSth->execute($schema2Chk, $tableName, $schema2Chk, $schema2Chk, $tableName);
 
 	my %colData=();
+	my @indexes=();
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
 		my ($indexName,$columnList) = @{$colAry};
 
 		#print "Cols:  $columnList\n";
 
+		push @indexes, $indexName;
 		push @{$colData{$indexName}},split(/,/,$columnList);
 
 	}
 
-	my @indexes = sort keys %colData;
+	#my @indexes = sort keys %colData;
 	print 'Col Data: ', Dumper(\%colData) if $debug;
+	print 'Indexes: ', Dumper(\@indexes) if $debug;
 
 	#next;
 
-	my $indexCount = $#indexes + 1;
+	# returns 0 if only 1 index
+	print "Number of indexes: " , $#indexes ,"\n";
+	if ($#indexes < 1 ) {
+		print "Skipping comparison as there is only 1 index on $tableName\n";
+		next;
+	}
 
 	print Dumper(\%colData) if $debug;
 	print Dumper(\@indexes) if $debug;
 
-	#print "Index Count: $indexCount\n";
 
-	my $numberOfComparisons = seriesSum($indexCount);
+	my $numberOfComparisons = seriesSum($#indexes + 1);
 
 	print "\tNumber of Comparisons to make: $numberOfComparisons\n";
 
@@ -294,14 +301,25 @@ foreach my $el ( 0 .. $#tables ) {
 	my @idxInfo=(); # temp storage for data to put in %csvIndexes
 
 	# compare from first index to penultimate index as first of a pair to compare
-	for (my $idxBase=0; $idxBase < ($indexCount-1); $idxBase++ ) {
+	IDXCOMP: for (my $idxBase=0; $idxBase < ($#indexes); $idxBase++ ) {
 
 
 		# start with first index, compare columns to the rest of the indexes
 		# then go to next index and compare to successive indexes
-		for (my $compIdx=$idxBase+1; $compIdx < ($indexCount); $compIdx++ ) {
+		for (my $compIdx=$idxBase+1; $compIdx < ($#indexes + 1); $compIdx++ ) {
 
 			#my $debug=0;
+
+			# do not compare an index to itself
+			# this can happen when a single index is supporting two or more constraints, such as Unique and Primary
+			# possibly only if it is also the only index
+			# putting code above to skip these
+			my $indexesIdentical=0;
+			if ($indexes[$idxBase] eq $indexes[$compIdx]) {
+				print "Indexes $indexes[$idxBase] and $indexes[$compIdx] are identical\n";
+				$indexesIdentical=1;
+				next IDXCOMP; # naked 'next' was going to the outer loop - dunno why
+			}
 
 			print "\t",'=' x 100, "\n";
 			print "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
@@ -376,73 +394,69 @@ foreach my $el ( 0 .. $#tables ) {
 			$idxInfo[$csvColByName{'SQL'}] = [];
 
 
-			#if ($leadingColCount > 0 ) {
-				my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
-				my $leastIdxNameLen = length($leastIdxName);
-				my $mostIdxNameLen = length($mostIdxName);
-				my $attention='';
+			my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
+			my $leastIdxNameLen = length($leastIdxName);
+			my $mostIdxNameLen = length($mostIdxName);
+			my $attention='';
 
-				$idxInfo[$csvColByName{'Redundant'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
-				$idxInfo[$csvColByName{'Column Dup%'}] = $leastColSimilarCountRatio;
-				$idxInfo[$csvColByName{'Drop Immediately'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+			$idxInfo[$csvColByName{'Redundant'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+			$idxInfo[$csvColByName{'Column Dup%'}] = $leastColSimilarCountRatio;
+			$idxInfo[$csvColByName{'Drop Immediately'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
 
-				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
-					$attention = '====>>>> ';
-					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+			if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
+				$attention = '====>>>> ';
+				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+			}
+			printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+			#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+
+
+			if ( isIdxUsed($idxChkSth,$indexes[$idxBase]) ) {
+				print "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
+				$idxInfo[$csvColByName{'Known Used'}] = 'Y';
+			} else {
+				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+			}
+
+			if ( isIdxUsed($idxChkSth,$indexes[$compIdx]) ) {
+				print "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
+			}
+
+			# check to see if either index is known to support a constraint
+			my %idxPairInfo = (
+				$leastIdxName => undef,
+				$mostIdxName => undef
+			);
+			getIdxPairInfo($schema2Chk,$idxInfoSth,\%idxPairInfo);
+			#print Dumper(\%idxPairInfo);
+
+
+			# report if any constraints use one or both of the indexes
+			foreach my $idxName ( keys %idxPairInfo ) {
+				# only 4 possibilities at this time - NONE, R, U, and P
+				my ($idxBytes, $constraintName, $constraintType) = @{$idxPairInfo{$idxName}};
+				
+				my $idxNameLen = length($idxName);
+				printf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
+
+				if ($idxName eq $indexes[$idxBase] ) {
+					$idxInfo[$csvColByName{'Size'}] = $idxBytes;
+					$idxInfo[$csvColByName{'Constraint Type'}] = $constraintType;
 				}
-				printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
-				#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 
-
-				if ( isIdxUsed($idxChkSth,$indexes[$idxBase]) ) {
-					print "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
-					$idxInfo[$csvColByName{'Known Used'}] = 'Y';
-				} else {
-					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+				if ( $constraintType eq 'NONE' ) {
+					print "The index $idxName does not appear to support any constraints\n";
+				} elsif ( $constraintType eq 'R' ) { # foreign key
+						print "The index $idxName supports Foreign Key $constraintName\n";
+				} elsif ( $constraintType eq 'U' ) { # unique key
+						print "The index $idxName supports Unique Key $constraintName\n";
+				} elsif ( $constraintType eq 'P' ) { # primary key
+						print "The index $idxName supports Primary Key $constraintName\n";
+				} else { 
+					warn "Unknown Constraint type of $constraintType!\n";
 				}
-
-				if ( isIdxUsed($idxChkSth,$indexes[$compIdx]) ) {
-					print "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
-				}
-
-				#if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
-					# check to see if either index is known to support a constraint
-					my %idxPairInfo = (
-						$leastIdxName => undef,
-						$mostIdxName => undef
-					);
-					getIdxPairInfo($schema2Chk,$idxInfoSth,\%idxPairInfo);
-					#print Dumper(\%idxPairInfo);
-
-
-					# report if any constraints use one or both of the indexes
-					foreach my $idxName ( keys %idxPairInfo ) {
-						# only 4 possibilities at this time - NONE, R, U, and P
-						my ($idxBytes, $constraintName, $constraintType) = @{$idxPairInfo{$idxName}};
-						
-						my $idxNameLen = length($idxName);
-						printf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
-
-						if ($idxName eq $indexes[$idxBase] ) {
-							$idxInfo[$csvColByName{'Size'}] = $idxBytes;
-							$idxInfo[$csvColByName{'Constraint Type'}] = $constraintType;
-						}
-
-						if ( $constraintType eq 'NONE' ) {
-							print "The index $idxName does not appear to support any constraints\n";
-						} elsif ( $constraintType eq 'R' ) { # foreign key
-								print "The index $idxName supports Foreign Key $constraintName\n";
-						} elsif ( $constraintType eq 'U' ) { # unique key
-								print "The index $idxName supports Unique Key $constraintName\n";
-						} elsif ( $constraintType eq 'P' ) { # primary key
-								print "The index $idxName supports Primary Key $constraintName\n";
-						} else { 
-							warn "Unknown Constraint type of $constraintType!\n";
-						}
-					}
-					#}
-				#}
-		}
+			}
+		} # inner index loop
 
 		print qq{
 
@@ -450,17 +464,17 @@ Debug: csvIndexes
 idxInfo[csvColByName{'Table Name'}]: $idxInfo[$csvColByName{'Table Name'}]
 idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}] 
 
-} if $debug;
+		} if $debug;
 
 		print 'idxInfo: ' , Dumper(\@idxInfo) if $debug;
 
 		push @{$csvIndexes{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
-	}
+	} # outer index loop
 
 
 	print "\tTotal Comparisons Made: $indexesComparedCount\n\n";
 
-	print "\t!! Number of Comparisons made was $indexesComparedCount - should have been $numberOfComparisons !!\n" if ($numberOfComparisons != $indexesComparedCount );
+	#print "\t!! Number of Comparisons made was $indexesComparedCount - should have been $numberOfComparisons !!\n" if ($numberOfComparisons != $indexesComparedCount );
 
 }
 
