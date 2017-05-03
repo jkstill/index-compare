@@ -32,6 +32,23 @@ my $csvDelimiter=',';
 my $colnameDelimiter='|'; # used to separate columns and SQL statements in the CSV output field - must be different than csvDelimiter
 my $csvOut=0;
 
+# SQL statements are all written to separate files
+# some SQL requires commas which messes up our comma delimited file
+# also makes the spreadsheet much more usable
+
+my %dirs = (
+	'colgrpDDL' => 'column-group-ddl',
+	'indexDDL' => 'index-ddl',
+);
+
+# create dirs as needed
+
+foreach my $dir ( keys %dirs ) {
+	if ( ! -d $dirs{$dir} ) {
+		die "Could not create $dirs{$dir}\n" unless mkdir $dirs{$dir};
+	}
+}
+
 my %csvColByID = (
 	0	=>"Table Name",
 	1	=>"Index Name",
@@ -43,9 +60,9 @@ my %csvColByID = (
 	7	=>"Known Used",
 	8	=>"Drop Candidate",
 	9	=>"Drop Immediately",
-	10	=>"Create ColGroup",
-	11	=>"Columns", # must always be penultimate field
-	12	=>"SQL", # must always be last field
+	10	=>"Create ColGroup", # 'NA' or 'Y'
+	11	=>"Columns", # must always be the last field
+	#12	=>"SQL", # must always be last field
 );
 
 my %csvColByName = map { $csvColByID{$_} => $_ } keys %csvColByID;
@@ -110,10 +127,10 @@ if ($csvOut) {
 	my @header = map { $csvColByID{$_} } sort { $a <=> $b } keys %csvColByID;
 	#print 'Header : ' , Dumper(\@header);
 
-	my $SQL = pop @header;
+	#my $SQL = pop @header;
 	my $colNames = pop @header;
 	push @header, [$colNames];
-	push @header, [$SQL];
+	#push @header, [$SQL];
 
 	csvPrint($csvFH,$csvDelimiter,$colnameDelimiter,\@header);
 }
@@ -254,7 +271,7 @@ my $csvInclude = $csvOut ? 1 : 0;
 my %csvIndexes=(); 
 
 # start of main loop - process tables
-foreach my $el ( 0 .. $#tables ) {
+TABLE: foreach my $el ( 0 .. $#tables ) {
 	my $tableName = $tables[$el];
 
 	#my $debug=0;
@@ -286,7 +303,7 @@ foreach my $el ( 0 .. $#tables ) {
 	print "Number of indexes: " , $#indexes ,"\n";
 	if ($#indexes < 1 ) {
 		print "Skipping comparison as there is only 1 index on $tableName\n";
-		next;
+		next TABLE;
 	}
 
 	print Dumper(\%colData) if $debug;
@@ -391,7 +408,7 @@ foreach my $el ( 0 .. $#tables ) {
 			$idxInfo[$csvColByName{'Drop Immediately'}] = 'N';
 			$idxInfo[$csvColByName{'Create ColGroup'}] = 'NA';
 			$idxInfo[$csvColByName{'Columns'}] = $colData{$indexes[$idxBase]};
-			$idxInfo[$csvColByName{'SQL'}] = [];
+			#$idxInfo[$csvColByName{'SQL'}] = [];
 
 
 			my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
@@ -465,6 +482,53 @@ idxInfo[csvColByName{'Table Name'}]: $idxInfo[$csvColByName{'Table Name'}]
 idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}] 
 
 		} if $debug;
+
+		#push @{$idxInfo[$csvColByName{'SQL'}]}, 'alter index ' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' invisible;';
+		#push @{$idxInfo[$csvColByName{'SQL'}]}, 'alter index ' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' visible;';
+
+		my $idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-invisible.sql';
+		my $idxDDLFh = IO::File->new("$dirs{'indexDDL'}/$idxDDLFile",'w');
+		die "Could not create $idxDDLFile\n" unless $idxDDLFh;
+		print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' invisible;';
+
+		$idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-visible.sql';
+		$idxDDLFh = IO::File->new("$dirs{'indexDDL'}/$idxDDLFile",'w');
+		die "Could not create $idxDDLFile\n" unless $idxDDLFh;
+		print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' visible;';
+
+		close $idxDDLFh;
+
+
+=head1 create column group DDL as necessary
+		
+ The optimizer may be using statistics gathered on index columns during optimization
+ even if that index is never used in an execution plan.
+
+ When an index is a drop candidate, and there are no duplicated leading columns, include code to create extended stats
+	
+
+=cut
+		
+		if ( 
+			$idxInfo[$csvColByName{'Drop Candidate'}] eq 'Y' 
+				and 
+			$idxInfo[$csvColByName{'Column Dup%'}] == 0
+		) {
+			my $columns = join(',',@{$idxInfo[$csvColByName{'Columns'}]});
+			my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
+
+			print "ColGrp DDL:  $colgrpDDL\n";
+
+			my $colgrpFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-colgrp.sql';
+
+			my $colgrpFH = IO::File->new("$dirs{'colgrpDDL'}/$colgrpFile",'w');
+			die "Could not create $colgrpFile\n" unless $colgrpFH;
+
+			print $colgrpFH "$colgrpDDL\n";
+			close $colgrpFH;
+
+			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
+		}
 
 		print 'idxInfo: ' , Dumper(\@idxInfo) if $debug;
 
@@ -700,15 +764,17 @@ sub csvPrint($$$$) {
 	#print "DEBUG - lastEl: $lastEl\n";
 	#print 'ary: ', Dumper($ary->[$lastEl-1]);
 
-	my $colNames = join("$colnameDelimiter",@{$ary->[$lastEl-1]});
-	my $sqlStatements = join("$colnameDelimiter",@{$ary->[$lastEl]});
+	#my $colNames = join("$colnameDelimiter",@{$ary->[$lastEl-1]});
+	#my $sqlStatements = join("$colnameDelimiter",@{$ary->[$lastEl]});
+	my $colNames = join("$colnameDelimiter",@{$ary->[$lastEl]});
 
-	print $fh join($csvDelimiter,@{$ary}[0..($lastEl-2)]),$csvDelimiter;
+	print $fh join($csvDelimiter,@{$ary}[0..($lastEl-1)]),$csvDelimiter;
 	# print Column names
 	print $fh "${colNames}" if defined($colNames);
-	print $fh $csvDelimiter;
+	print $fh "\n";
+	#print $fh $csvDelimiter;
 	# print SQL
-	print $fh "${sqlStatements}\n";
+	#print $fh "${sqlStatements}\n";
 
 }
 
