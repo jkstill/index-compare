@@ -413,8 +413,18 @@ foreach my $el ( 0 .. $#tables ) {
 				}
 			}
 		}
-		$csvIndexes{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] } = \@idxInfo;
-		print 'idxInfo: ' , Dumper(\@idxInfo);
+
+		print qq{
+
+Debug: csvIndexes
+idxInfo[csvColByName{'Table Name'}]: $idxInfo[$csvColByName{'Table Name'}]
+idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}] 
+
+} if $debug;
+
+		print 'idxInfo: ' , Dumper(\@idxInfo) if $debug;
+
+		push @{$csvIndexes{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
 	}
 
 
@@ -649,8 +659,6 @@ sub csvPrint($$$$) {
 	my $colNames = join("$colnameDelimiter",@{$ary->[$lastEl-1]});
 	my $sqlStatements = join("$colnameDelimiter",@{$ary->[$lastEl]});
 
-
-	#print $fh join($csvDelimiter,@{$ary->[0..($lastEl-2)]});
 	print $fh join($csvDelimiter,@{$ary}[0..($lastEl-2)]),$csvDelimiter;
 	# print Column names
 	print $fh "${colNames}" if defined($colNames);
