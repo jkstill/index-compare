@@ -164,20 +164,44 @@ where i.owner = ?
 	and i.index_name = ?
 };
 
-my $colSql = q{select
-	ic.index_name, listagg(ic.column_name,',') within group (order by ic.column_position) column_list
-from dba_ind_columns ic
-join dba_indexes i on i.owner = ic.index_owner
-	and i.index_name = ic.index_name
-	and i.index_type in ('NORMAL')
-join dba_objects o on o.owner = i.owner
-	and o.object_name = i.index_name
-	and o.object_type = 'INDEX'
-where ic.index_owner = ?
-	and ic.table_owner = ?
-	and ic.table_name = ?
-group by ic.index_name, o.created
-order by created desc -- PK should appear last
+# indexes ordered so that those support unique and primary constraints are considered last
+my $colSql = q{with cons_idx as (
+   select /*+ no_merge */
+      table_name, index_name , constraint_name, constraint_type
+   from dba_constraints
+   where owner = ?
+		and table_name = ?
+   	and constraint_type in ('R','U','P')
+   	and index_name is not null
+), 
+idxinfo as (
+	select
+		ic.index_name
+		, nvl(cons.constraint_type , 'NONE') constraint_type
+		, listagg(ic.column_name,',') within group (order by ic.column_position) column_list
+	from dba_ind_columns ic
+	join dba_indexes i on i.owner = ic.index_owner
+		and i.index_name = ic.index_name
+		and i.index_type in ('NORMAL')
+	left outer join cons_idx cons on cons.table_name = i.table_name
+   	and cons.index_name = i.index_name
+	where ic.index_owner = ?
+		and ic.table_owner = ?
+		and ic.table_name = ?
+	group by ic.index_name, nvl(cons.constraint_type , 'NONE') 
+)
+select
+	index_name
+	, column_list
+from idxinfo 
+order by 
+	case 
+		when constraint_type = 'NONE' then 1
+		when constraint_type = 'R' then 2
+		when constraint_type = 'U' then 3
+		when constraint_type = 'P' then 5
+		else 4
+	end 
 };
 
 # SQL to check the table of known used indexes
@@ -238,7 +262,7 @@ foreach my $el ( 0 .. $#tables ) {
 	print '#' x 120, "\n";
 	print "Working on table $tableName\n";
 
-	$colSth->execute($schema2Chk, $schema2Chk, $tableName);
+	$colSth->execute($schema2Chk, $tableName, $schema2Chk, $schema2Chk, $tableName);
 
 	my %colData=();
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
