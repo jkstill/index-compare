@@ -167,15 +167,17 @@ where i.owner = ?
 my $colSql = q{select
 	ic.index_name, listagg(ic.column_name,',') within group (order by ic.column_position) column_list
 from dba_ind_columns ic
-join dba_indexes i
-	on i.owner = ic.index_owner
+join dba_indexes i on i.owner = ic.index_owner
 	and i.index_name = ic.index_name
 	and i.index_type in ('NORMAL')
+join dba_objects o on o.owner = i.owner
+	and o.object_name = i.index_name
+	and o.object_type = 'INDEX'
 where ic.index_owner = ?
 	and ic.table_owner = ?
 	and ic.table_name = ?
-group by ic.index_name
-order by ic.index_name
+group by ic.index_name, o.created
+order by created desc -- PK should appear last
 };
 
 # SQL to check the table of known used indexes
