@@ -1,3 +1,6 @@
+
+@@get-schema &1
+
 select count(*) from dba_indexes
-where owner = 'CT'
+where owner = '&u_schema'
 /

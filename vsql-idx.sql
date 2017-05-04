@@ -1,3 +1,7 @@
+
+
+@@get-schema &1
+
 select
 	to_char(timestamp,'yyyy-mm-dd hh24:mi:ss') timestamp
 	, sql_id
@@ -10,7 +14,7 @@ select
 	--, partition_stop
 	--, partition_id
 from gv$sql_plan
-where object_owner = 'CT'
+where object_owner = '&u_schema'
 	and object_type = 'INDEX'
 order by 1
 /

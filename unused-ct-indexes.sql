@@ -1,8 +1,17 @@
 
 
+@@get-schema &1
+
+set term on echo off term on feed on
+
 set pagesize 100
 
+col table_name format a30
+col index_name format a30
 col bytes format 999,999,999,999
+
+set linesize 200 trimspool on
+set pagesize 100
 
 def b1='#######################################'
 def b2='### '
@@ -20,7 +29,7 @@ with cons_idx as (
 	select /*+ no_merge */
 		table_name, index_name , constraint_type
 	from dba_constraints
-	where owner = 'CT'
+	where owner = '&u_schema'
 	and constraint_type in ('R','U','P')
 	and index_name is not null
 )
@@ -31,8 +40,8 @@ from dba_indexes i
 join dba_tablespaces t on i.tablespace_name = t.tablespace_name
 left outer join cons_idx idx on idx.table_name = i.table_name
 	and idx.index_name = i.index_name
-where i.owner = 'CT'
-and i.index_name not in (select * from avail.used_ct_indexes)
+where i.owner = '&u_schema'
+and i.index_name not in (select * from &u_schema..used_ct_indexes)
 and i.index_type in ('NORMAL','NORMAL/REV','FUNCTION-BASED NORMAL')
 -- not going to rely on index naming convention
 --and index_name not like '%\_UK' escape '\'  -- Unique Keys - a fortunate naming convention
