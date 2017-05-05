@@ -15,33 +15,62 @@ Each iteration will check for new entries as of the previous timestamp
 
 JKS-DOC
 
-IDXHOME='/home/oracle/working/still/CR-1113105_indexes'
 
-cd $IDXHOME || {
+# trap exits from parameter tests
+trap "usage;exit 1" 0
+
+usage () {
 	echo
-	echo $IDXHOME not found
-	exit 1
+	echo
+	echo usage: $0  oracle_home_SID database_name username schemaname
+	echo " oracle_home_SID  : used to set environment with oraenv"
+	echo " database_name    : db to connect to"
+	echo " username         : user to connect as"
+	echo " schemaname       : schema to check"
+	echo
 }
 
+ORACLE_SID=$1
+DB=$2
+USERNAME=$3
+SCHEMA=$4
+
+# causes error exit if not set
+: ${ORACLE_SID:?} ${DB:?} ${USERNAME:?} ${SCHEMA:?}
+
+# turn off trap
+trap 0
 
 unset ORAENV_ASK
 
 PATH=/usr/local/bin:$PATH
 
-. /usr/local/bin/oraenv <<< iotkdb
+. /usr/local/bin/oraenv <<< $ORACLE_SID
 
-# run every 5 minutes
-# do this for about a week
+# run every 5 minutes - 288 per day
 
-maxIterations=2300
+maxIterations=144
+
+# get the password
+
+echo 
+echo -n Enter the password for $USERNAME:
+stty -echo
+read PASSWORD
+stty echo
+echo
+echo
+
+trap -- '' SIGHUP
 
 while ( [[ $maxIterations > 0 ]] )
 do
 
-	$ORACLE_HOME/perl/bin/perl vsql-idx.pl
+	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database p1 --username jkstill --password --schema jkstill
 	echo Iteration: $maxIterations
 	sleep 300
 
 	(( maxIterations-- ))
-done
+done >> vsql-idx_nohup.out &
+
 

@@ -8,19 +8,57 @@ use strict;
 
 use Getopt::Long;
 
-my %optctl = ();
+
+sub getPassword();
+
+
+my $db=undef; # left as undef for local sysdba connection
+# the --password option will not accept a password
+# but just indicates whether a password will be necessary
+# if required, the password will be requested
+my $getPassword=0;
+my $password=undef;
+my $username=undef;
+my $sysdba=0;
+my $schemaName = 'AVAIL';
+my $help=0;
+my $debug=0;
+
+GetOptions (
+		"database=s" => \$db,
+		"username=s" => \$username,
+		"schema=s" => \$schemaName,
+		"sysdba!" => \$sysdba,
+		"debug!" => \$debug,
+		"password!" => \$getPassword,
+		"h|help!" => \$help
+) or die usage(1);
+
+usage() if $help;
+
+$sysdba=2 if $sysdba;
+$schemaName = uc($schemaName);
+
+
+if ($getPassword) {
+	$password = getPassword();
+	#print "Password: $password\n";
+}
+
 
 my $dbh = DBI->connect(
-	'dbi:Oracle:' ,
-	undef, undef,
+	"dbi:Oracle:${db}" , 
+	$username,$password,
+	#$username, $password,
 	{
 		RaiseError => 1,
 		AutoCommit => 0,
-		ora_session_mode => 2
+		ora_session_mode => $sysdba
 	}
-	);
+);
 
 die "Connect to  oracle failed \n" unless $dbh;
+
 
 my  $lastTimeStampFile='./last-timestamp.txt';
 my  $lastTimeStamp = '2017-01-01 00:00:00';
@@ -55,12 +93,12 @@ my $sql=q{ select
 	--, object_owner
 	, object_name
 	, object#
-	-- no partitions in CT schema
+	-- partitions not important for this
 	--, partition_start
 	--, partition_stop
 	--, partition_id
 from gv$sql_plan
-where object_owner = 'CT'
+where object_owner = upper(?)
 	and object_type = 'INDEX'
 	and timestamp > to_date(?,'yyyy-mm-dd hh24:mi:ss')
 order by 1,2,3};
@@ -69,7 +107,7 @@ open OF,'>>',$outputFile || die " cannot open $outputFile - $!\n";
 
 my $sth = $dbh->prepare($sql,{ora_check_sql => 0});
 
-$sth->execute($lastTimeStamp);
+$sth->execute($schemaName, $lastTimeStamp);
 
 my $rowCount=0;
 while( my $ary = $sth->fetchrow_arrayref ) {
@@ -96,16 +134,34 @@ sub usage {
 
 usage: $basename
 
-  -database		  target instance
-  -username		  target instance account name
-  -password		  target instance account password
-  -sysdba		  logon as sysdba
-  -sysoper		  logon as sysoper
+  --database  target instance
+  --username  target instance account name
+  --password  prompt for password 
+  --schema    schema to check
+  --sysdba    logon as sysdba
 
   example:
 
-  $basename -database dv07 -username scott -password tiger -sysdba
+  $basename -database dv07 -username scott -password  -sysdba
 /;
 	exit $exitVal;
 };
+
+
+sub getPassword() {
+
+	local $SIG{__DIE__} = sub {system('stty','echo');print "I was killed\n"; die }; # killed
+	local $SIG{INT} = sub {system('stty','echo');print "I was interrupted\n"; die }; # CTL-C
+	local $SIG{QUIT} = sub {system('stty','echo');print "I was told to quit\n"; die }; # ctl-\
+
+	# this clearly does not work on non *nix systems
+	# Oracle Perl does not come with Term::ReadKey, so doing this hack instead
+	print "Enter password: ";
+	system('stty','-echo'); #Hide console input for what we type
+	chomp(my $password=<STDIN>);
+	system('stty','echo'); #Unhide console input for what we type
+	print "\n";
+	return $password;
+}
+
 
