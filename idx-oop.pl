@@ -12,7 +12,7 @@ use IO::File;
 use Index::Compare;
 use Generic qw(getPassword seriesSum compareAry closeSession);
 
-my $debug=1;
+my $debug=0;
 sub csvPrint($$$$);
 
 
@@ -29,6 +29,9 @@ my $csvFile=undef;
 my $csvDelimiter=',';
 my $colnameDelimiter='|'; # used to separate columns and SQL statements in the CSV output field - must be different than csvDelimiter
 my $csvOut=0;
+my $progressDivisor=10;
+my $progressIndicator='.';
+my $progressCounter=0;
 
 # SQL statements are all written to separate files
 # some SQL requires commas which messes up our comma delimited file
@@ -178,13 +181,19 @@ my $csvInclude = $csvOut ? 1 : 0;
 # indexes will be included in CSV output when the idxRatioAlertThreshold is met
 my %csvIndexes=(); 
 
+# push all report output to an array
+my @rptOut=();
+
 # start of main loop - process tables
 TABLE: while ( my $tableName = $compare->getTable() ) {
 
 	#my $debug=0;
 
-	print '#' x 120, "\n";
-	print "Working on table $tableName\n";
+	#print '#' x 120, "\n";
+	#print "Working on table $tableName\n";
+	
+	push @rptOut, '#' x 120, "\n";
+	push @rptOut, "Working on table $tableName\n";
 
 	my %colData=();
 	my @indexes=();
@@ -195,26 +204,31 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 		IDXARY => \@indexes
 	);
 
-	print 'Col Data: ', Dumper(\%colData) if $debug;
-	print 'Indexes: ', Dumper(\@indexes) if $debug;
+	#print 'Col Data: ', Dumper(\%colData) if $debug;
+	#print 'Indexes: ', Dumper(\@indexes) if $debug;
+	
+	if ($debug) {
+		push @rptOut, 'Col Data: ';
+		foreach my $line ( Dumper(\%colData) ) { push @rptOut, $line }
+		push @rptOut, 'Indexes: ';
+		foreach my $line ( Dumper(\@indexes) ) { push @rptOut, $line }
+	}
 
 	#next;
 
 	# returns 0 if only 1 index
-	print "Number of indexes: " , $#indexes ,"\n";
+	#print "Number of indexes: " , $#indexes ,"\n";
+	push @rptOut, "Number of indexes: " , $#indexes ,"\n";
 	if ($#indexes < 1 ) {
-		print "Skipping comparison as there is only 1 index on $tableName\n";
+		push @rptOut, "Skipping comparison as there is only 1 index on $tableName\n";
 		next TABLE;
 	}
 
-	print '%colData:  ' , Dumper(\%colData) if $debug;
-	print '@indexes:  ' , Dumper(\@indexes) if $debug;
-	
 	#next; # debug - skip code
 
 	my $numberOfComparisons = seriesSum($#indexes + 1);
 
-	print "\tNumber of Comparisons to make: $numberOfComparisons\n";
+	push @rptOut,  "\tNumber of Comparisons to make: $numberOfComparisons\n";
 
 	my $indexesComparedCount=0;
 	my @idxInfo=(); # temp storage for data to put in %csvIndexes
@@ -225,6 +239,9 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 		# start with first index, compare columns to the rest of the indexes
 		# then go to next index and compare to successive indexes
 		for (my $compIdx=$idxBase+1; $compIdx < ($#indexes + 1); $compIdx++ ) {
+
+			# show progress on terminal
+			print STDERR $progressIndicator unless $progressCounter++ % $progressDivisor;
 
 			#my $debug=0;
 
@@ -239,17 +256,17 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 				next IDXCOMP; # naked 'next' was going to the outer loop - dunno why
 			}
 
-			print "\t",'=' x 100, "\n";
-			print "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
+			push @rptOut, "\t",'=' x 100, "\n";
+			push @rptOut, "\tComparing $indexes[$idxBase] -> $indexes[$compIdx]\n";
 
-			print "\n\tColumn Lists:\n";
-			printf("\t %30s: %-200s\n", $indexes[$idxBase], join(' , ', @{$colData{$indexes[$idxBase]}}));
-			printf("\t %30s: %-200s\n", $indexes[$compIdx], join(' , ', @{$colData{$indexes[$compIdx]}}));
+			push @rptOut, "\n\tColumn Lists:\n";
+			push @rptOut, sprintf("\t %30s: %-200s\n", $indexes[$idxBase], join(' , ', @{$colData{$indexes[$idxBase]}}));
+			push @rptOut, sprintf("\t %30s: %-200s\n", $indexes[$compIdx], join(' , ', @{$colData{$indexes[$compIdx]}}));
 
 			$indexesComparedCount++;
 
-			print "IDX 1: ", Dumper($colData{$indexes[$idxBase]}) if $debug;
-			print "IDX 2: ", Dumper($colData{$indexes[$compIdx]}) if $debug;
+			push @rptOut, "IDX 1: ", Dumper($colData{$indexes[$idxBase]}) if $debug;
+			push @rptOut, "IDX 2: ", Dumper($colData{$indexes[$compIdx]}) if $debug;
 
 			my @intersection = ();
 			my @idx1Diff = ();
@@ -258,19 +275,19 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 			compareAry($colData{$indexes[$idxBase]}, $colData{$indexes[$compIdx]}, \@intersection, \@idx1Diff, \@idx2Diff);
 
 			if ($debug) {
-				print "DIFF 1: ", Dumper(\@idx1Diff);
-				print "DIFF 2: ", Dumper(\@idx2Diff);
-				print "INTERSECT: ", Dumper(\@intersection);
+				push @rptOut, "DIFF 1: ", Dumper(\@idx1Diff);
+				push @rptOut, "DIFF 2: ", Dumper(\@idx2Diff);
+				push @rptOut, "INTERSECT: ", Dumper(\@intersection);
 			}
 
-			print "\n\tColumns found only in $indexes[$idxBase]\n";
-			print "\n\t\t", join("\n\t\t",sort @idx1Diff),"\n\n";
+			push @rptOut, "\n\tColumns found only in $indexes[$idxBase]\n";
+			push @rptOut, "\n\t\t", join("\n\t\t",sort @idx1Diff),"\n\n";
 
-			print "\tColumns found only in $indexes[$compIdx]\n";
-			print "\n\t\t", join("\n\t\t",sort @idx2Diff),"\n\n";
+			push @rptOut, "\tColumns found only in $indexes[$compIdx]\n";
+			push @rptOut, "\n\t\t", join("\n\t\t",sort @idx2Diff),"\n\n";
 
-			print "\tColumns found in both\n";
-			print "\n\t\t", join("\n\t\t",sort @intersection),"\n\n";
+			push @rptOut, "\tColumns found in both\n";
+			push @rptOut, "\n\t\t", join("\n\t\t",sort @intersection),"\n\n";
 
 			my @idxCols1 = @{$colData{$indexes[$idxBase]}};
 			my @idxCols2 = @{$colData{$indexes[$compIdx]}};
@@ -325,19 +342,19 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 				$attention = '====>>>> ';
 				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 			}
-			printf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
-			#printf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+			push @rptOut, sprintf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
+			#push @rptOut, sprintf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 
 
 			if ( $compare->isIdxUsed($indexes[$idxBase]) ) {
-				print "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
+				push @rptOut, "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
 				$idxInfo[$csvColByName{'Known Used'}] = 'Y';
 			} else {
 				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 			}
 
 			if ( $compare->isIdxUsed($indexes[$compIdx]) ) {
-				print "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
+				push @rptOut, "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
 			}
 
 			# check to see if either index is known to support a constraint
@@ -355,7 +372,7 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 				my ($idxBytes, $constraintName, $constraintType) = @{$idxPairInfo{$idxName}};
 				
 				my $idxNameLen = length($idxName);
-				printf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
+				push @rptOut, sprintf ("The index %${idxNameLen}s is %9.0f bytes\n", $idxName, $idxBytes);
 
 				if ($idxName eq $indexes[$idxBase] ) {
 					$idxInfo[$csvColByName{'Size'}] = $idxBytes;
@@ -363,13 +380,13 @@ TABLE: while ( my $tableName = $compare->getTable() ) {
 				}
 
 				if ( $constraintType eq 'NONE' ) {
-					print "The index $idxName does not appear to support any constraints\n";
+					push @rptOut, "The index $idxName does not appear to support any constraints\n";
 				} elsif ( $constraintType eq 'R' ) { # foreign key
-						print "The index $idxName supports Foreign Key $constraintName\n";
+						push @rptOut, "The index $idxName supports Foreign Key $constraintName\n";
 				} elsif ( $constraintType eq 'U' ) { # unique key
-						print "The index $idxName supports Unique Key $constraintName\n";
+						push @rptOut, "The index $idxName supports Unique Key $constraintName\n";
 				} elsif ( $constraintType eq 'P' ) { # primary key
-						print "The index $idxName supports Primary Key $constraintName\n";
+						push @rptOut, "The index $idxName supports Primary Key $constraintName\n";
 				} else { 
 					warn "Unknown Constraint type of $constraintType!\n";
 				}
@@ -418,7 +435,7 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			my $columns = join(',',@{$idxInfo[$csvColByName{'Columns'}]});
 			my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
 
-			print "ColGrp DDL:  $colgrpDDL\n";
+			push @rptOut, "ColGrp DDL:  $colgrpDDL\n";
 
 			my $colgrpFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-colgrp.sql';
 
@@ -431,13 +448,16 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
 		}
 
-		print 'idxInfo: ' , Dumper(\@idxInfo) if $debug;
+		if ($debug) {
+			push @rptOut, 'idxInfo: ';
+			foreach my $line ( Dumper(\@idxInfo)) { push @rptOut, $line };
+		}
 
 		push @{$csvIndexes{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
 	} # outer index loop
 
 
-	print "\tTotal Comparisons Made: $indexesComparedCount\n\n";
+	push @rptOut, "\tTotal Comparisons Made: $indexesComparedCount\n\n";
 
 	#print "\t!! Number of Comparisons made was $indexesComparedCount - should have been $numberOfComparisons !!\n" if ($numberOfComparisons != $indexesComparedCount );
 
@@ -445,14 +465,24 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 
 closeSession($dbh);
 
-print 'csvIndexes: ' , Dumper(\%csvIndexes);
-
+# create the csv file
 if ( $csvOut ) {
 	foreach my $tabIdx ( sort keys %csvIndexes ) {
 		csvPrint($csvFH,$csvDelimiter,$colnameDelimiter,$csvIndexes{$tabIdx});
 	}
 }
 
+# print the log
+foreach my $line (@rptOut) { print $line }
+
+if ($debug) {
+	push @rptOut, 'csvIndexes: ';
+	foreach my $line ( Dumper(\%csvIndexes)) { push @rptOut, $line }
+	push @rptOut, '@rptOut: ';
+	foreach my $line ( Dumper(\@rptOut) ) { push @rptOut, $line }
+}
+
+# end of main
 
 sub usage {
 
