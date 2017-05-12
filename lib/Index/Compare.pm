@@ -185,6 +185,7 @@ sub getIdxColInfo {
 	my $self = shift;
 	my (%args) = @_;
 	my $dbh = $self->{DBH};
+	my $rptOut = $args{RPTARY};
 
 	my $indexes = $args{IDXARY};
 	my $colData = $args{COLHASH};
@@ -201,7 +202,7 @@ sub getIdxColInfo {
 
 #};
 	#
-	print "Getting column Info\n";
+	push @{$rptOut}, "Getting column Info\n";
 
 	my $colSth = $dbh->prepare($colSql,{ora_check_sql => 0});
 	$colSth->execute($self->{SCHEMA}, $args{TABLE}, $self->{SCHEMA}, $self->{SCHEMA}, $args{TABLE});
@@ -209,7 +210,7 @@ sub getIdxColInfo {
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
 		my ($indexName,$columnList) = @{$colAry};
 
-		print "Cols:  $columnList\n";
+		push @{$rptOut}, "Cols:  $columnList\n";
 
 		push @{$indexes}, $indexName;
 		push @{$colData->{$indexName}},split(/,/,$columnList);
@@ -295,7 +296,8 @@ sub processTabIdx {
 	$self->getIdxColInfo (
 		TABLE => $tableName,
 		COLHASH => \%colData,
-		IDXARY => \@indexes
+		IDXARY => \@indexes,
+		RPTARY => $rptOut,
 	);
 
 	#print 'Col Data: ', Dumper(\%colData) if $debug;
@@ -346,7 +348,7 @@ sub processTabIdx {
 			# putting code above to skip these
 			my $indexesIdentical=0;
 			if ($indexes[$idxBase] eq $indexes[$compIdx]) {
-				print "Indexes $indexes[$idxBase] and $indexes[$compIdx] are identical\n";
+				push @{$rptOut}, "Indexes $indexes[$idxBase] and $indexes[$compIdx] are identical\n";
 				$indexesIdentical=1;
 				next IDXCOMP; # naked 'next' was going to the outer loop - dunno why
 			}
