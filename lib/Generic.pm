@@ -7,12 +7,13 @@ use warnings;
 
 use Exporter qw(import);
 our @ISA =   qw(Exporter);
-our @EXPORT = qw(getPassword seriesSum compareAry);
+our @EXPORT = qw(getPassword seriesSum compareAry closeSession);
 
 
 sub getPassword();
 sub seriesSum($);
 sub compareAry ($$$$$);
+sub closeSession($);
 
 sub getPassword() {
 

@@ -105,22 +105,30 @@ where index_name = ?};
 	return bless \%args, $class;
 }
 
-# just example code for the moment
-sub getTables {
-	my $self = shift;
-	my $dbh = $self->{DBH};
+{
 
-	# wrong sql
-	#my $tabSth = $dbh->prepare($self->{IDX_CHK_SQL},{ora_check_sql => 0});
-	my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
+	my @tables=();
+	my $el=-1;
+	my $maxEl=undef;
 
-	my @tables;
-	$tabSth->execute($self->{SCHEMA});
-	while ( my $table = $tabSth->fetchrow_arrayref) { 
-		print "Table: $table->[0]\n";
-		push @tables, $table->[0];
-	};
-	return \@tables;	
+	sub getTable {
+		my $self = shift;
+		my $dbh = $self->{DBH};
+	
+		if ( ! @tables ) {
+			my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
+			$tabSth->execute($self->{SCHEMA});
+			while ( my $table = $tabSth->fetchrow_arrayref) { 
+				#print "Table: $table->[0]\n";
+				push @tables, $table->[0];
+			};
+			$maxEl = $#tables;
+		}
+
+		$el++;
+		return ( $el <= $maxEl ) ? $tables[$el] : undef;
+
+	}
 
 }
 

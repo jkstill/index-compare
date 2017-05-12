@@ -10,10 +10,9 @@ use Getopt::Long;
 use IO::File;
 
 use Index::Compare;
-use Generic qw(getPassword seriesSum compareAry);
+use Generic qw(getPassword seriesSum compareAry closeSession);
 
 my $debug=1;
-sub closeSession($);
 sub csvPrint($$$$);
 
 
@@ -173,29 +172,14 @@ my $compare = new Index::Compare (
 	RATIO	=> $idxRatioAlertThreshold
 );
 
-print Dumper($compare);
-
-my @tables = @{$compare->getTables()};
-
-unless (@tables) {
-	closeSession($dbh);
-	die "No tables found for $schema2Chk!\n";
-}
-
-if ($debug) {
-	print Dumper(\@tables);
-	# closeSession($dbh)
-	#exit;
-}
-
+#print Dumper($compare);
 
 my $csvInclude = $csvOut ? 1 : 0;
 # indexes will be included in CSV output when the idxRatioAlertThreshold is met
 my %csvIndexes=(); 
 
 # start of main loop - process tables
-TABLE: foreach my $el ( 0 .. $#tables ) {
-	my $tableName = $tables[$el];
+TABLE: while ( my $tableName = $compare->getTable() ) {
 
 	#my $debug=0;
 
@@ -362,7 +346,7 @@ TABLE: foreach my $el ( 0 .. $#tables ) {
 				$mostIdxName => undef
 			);
 			$compare->getIdxPairInfo(\%idxPairInfo);
-			print '%idxPairInfo: ' , Dumper(\%idxPairInfo);
+			#print '%idxPairInfo: ' , Dumper(\%idxPairInfo);
 
 
 			# report if any constraints use one or both of the indexes
