@@ -15,19 +15,20 @@ my $progressIndicator='.';
 my $progressCounter=0;
 
 my %csvColByID = (
-	0	=>"Table Name",
-	1	=>"Index Name",
-	2	=>"Compared To",
-	3	=>"Size",
-	4	=>"Constraint Type",
-	5	=>"Redundant",
-	6	=>"Column Dup%",
-	7	=>"Known Used",
-	8	=>"Drop Candidate",
-	9	=>"Drop Immediately",
-	10	=>"Create ColGroup", # 'NA' or 'Y'
-	11	=>"Columns", # must always be the last field
-	#12	=>"SQL", # must always be last field
+	0  =>"Table Owner",
+	1	=>"Table Name",
+	2	=>"Index Name",
+	3	=>"Compared To",
+	4	=>"Size",
+	5	=>"Constraint Type",
+	6	=>"Redundant",
+	7	=>"Column Dup%",
+	8	=>"Known Used",
+	9	=>"Drop Candidate",
+	10 =>"Drop Immediately",
+	11	=>"Create ColGroup", # 'NA' or 'Y'
+	12	=>"Columns", # must always be the last field
+	#13	=>"SQL", # must always be last field
 );
 
 my %csvColByName = map { $csvColByID{$_} => $_ } keys %csvColByID;
@@ -41,11 +42,15 @@ sub buildCsvHdr {
 #print 'csvColByName: ' . Dumper(\%csvColByName);
 
 my $tabSql = q{select
-table_name
+owner || '.' || table_name table_name
 from dba_tables
-where owner = ?
+where owner in (
+		select username
+		from dba_users
+		where default_tablespace not in ('SYSTEM','SYSAUX')
+	)
 	and table_name not like 'DR$%$I%' -- Text Indexes
-order by table_name
+order by owner, table_name
 };
 
 my $idxInfoSql = q{with cons_idx as (
@@ -121,15 +126,15 @@ sub new {
 	my (%args) = @_;
 	my $dbh = $args{DBH};
 
-	croak "Attribute SCHEMA is required in $class::new\n" unless $args{SCHEMA};
+	#croak "Attribute SCHEMA is required in $class::new\n" unless $args{SCHEMA};
 
 	$args{IDX_CHK_TABLE} = 'avail.used_ct_indexes' unless defined($args{IDX_CHK_TABLE});
 	$args{RATIO} = 75 unless defined($args{RATIO});
 	#
 	# SQL to check the table of known used indexes
-	$args{IDX_CHK_SQL} =  qq{select index_name
+	$args{IDX_CHK_SQL} =  qq{select owner, index_name
 from $args{IDX_CHK_TABLE}
-where index_name = ?};
+where (owner,index_name) in (?,?)};
 
 	croak "Attribute DBH is required in $class::new\n" unless $args{DBH};
 
@@ -148,8 +153,9 @@ where index_name = ?};
 	
 		if ( ! @tables ) {
 			my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
-			$tabSth->execute($self->{SCHEMA});
+			$tabSth->execute();
 			while ( my $table = $tabSth->fetchrow_arrayref) { 
+				# table_name is 'owner.table_name'
 				#print "Table: $table->[0]\n";
 				push @tables, $table->[0];
 			};
@@ -205,7 +211,7 @@ sub getIdxColInfo {
 	push @{$rptOut}, "Getting column Info\n";
 
 	my $colSth = $dbh->prepare($colSql,{ora_check_sql => 0});
-	$colSth->execute($self->{SCHEMA}, $args{TABLE}, $self->{SCHEMA}, $self->{SCHEMA}, $args{TABLE});
+	$colSth->execute($self->{OWNER}, $args{TABLE}, $self->{OWNER}, $self->{OWNER}, $args{TABLE});
 	
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
 		my ($indexName,$columnList) = @{$colAry};
@@ -221,11 +227,12 @@ sub getIdxColInfo {
 # check the usage table to see if the index is known to be used.
 sub isIdxUsed {
 	my $self = shift;
+	my $idxOwner = shift;
 	my $idxName = shift;
 	my $dbh = $self->{DBH};
 
 	my $sth = $dbh->prepare($self->{IDX_CHK_SQL},{ora_check_sql => 0});
-	$sth->execute($idxName);
+	$sth->execute($idxOwner, $idxName);
 
 	my $result = $sth->fetchrow_arrayref;
 	$sth->finish;
@@ -278,22 +285,24 @@ sub processTabIdx {
 	my $dbh = $self->{DBH};
 
 	my $dirs = $args{DIRS};
-	my $tableName = $args{TABLE};
+	my ($tableOwner,$tableName) = split(/\./,$args{TABLE});
 	my $debug = $args{DEBUG};
 	my $rptOut = $args{RPTARY};
 	my $csvIndexes = $args{CSVHASH};
 	my $idxRatioAlertThreshold = $self->{RATIO};
-	my $schema2Chk = $self->{SCHEMA};
+	#my $schema2Chk = $self->{SCHEMA};
+	my $schema2Chk = $tableOwner;
 
 	my %colData=();
 	my @indexes=();
 
 	push @{$rptOut}, '#' x 120, "\n";
-	push @{$rptOut}, "Working on table $tableName\n";
+	push @{$rptOut}, "Working on table ${tableOwner}.${tableName}\n";
 
 
 	#$compare->getIdxColInfo (
 	$self->getIdxColInfo (
+		OWNER => $tableOwner,
 		TABLE => $tableName,
 		COLHASH => \%colData,
 		IDXARY => \@indexes,
@@ -411,6 +420,7 @@ sub processTabIdx {
 				$leadingColCount++;
 			}
 
+			$idxInfo[$csvColByName{'Table Owner'}] = $tableOwner;
 			$idxInfo[$csvColByName{'Table Name'}] = $tableName;
 			$idxInfo[$csvColByName{'Index Name'}] = $indexes[$idxBase];
 			$idxInfo[$csvColByName{'Compared To'}] = $indexes[$compIdx];

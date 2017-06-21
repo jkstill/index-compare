@@ -25,7 +25,6 @@ my $getPassword=0;
 my $password=undef;
 my $username=undef;
 my $sysdba=0;
-my $schema2Chk = 'SCOTT';
 my $csvFile=undef;
 my $csvDelimiter=',';
 my $colnameDelimiter='|'; # used to separate columns and SQL statements in the CSV output field - must be different than csvDelimiter
@@ -65,12 +64,12 @@ my $help=0;
 GetOptions (
 		"database=s" => \$db,
 		"username=s" => \$username,
-		"schema=s" => \$schema2Chk,
 		"idx-chk-table=s" => \$idxChkTable,
 		"index-ratio-alert-threshold=i" => \$idxRatioAlertThreshold,
 		"csv-file=s" => \$csvFile,
 		"csv-delimiter=s" => \$csvDelimiter,
 		"column-delimiter=s" => \$colnameDelimiter,
+		"help!" => \$help,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
 		"password!" => \$getPassword,
@@ -79,7 +78,6 @@ GetOptions (
 usage() if $help;
 
 $sysdba=2 if $sysdba;
-$schema2Chk = uc($schema2Chk);
 
 if ($getPassword) {
 	$password = getPassword();
@@ -119,7 +117,6 @@ die "Connect to  oracle failed \n" unless $dbh;
 
 my $compare = new Index::Compare (
 	DBH => $dbh,
-	SCHEMA => $schema2Chk,
 	IDX_CHK_TABLE => $idxChkTable,
 	RATIO	=> $idxRatioAlertThreshold
 );
