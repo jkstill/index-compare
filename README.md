@@ -25,6 +25,9 @@ That may have changed, I have not checked.
 Another consideration is the overhead that may be imposed by the index monitoring.
 I would expect that to be minimal, but have not tested it.
 
+There is a scenario that can occur where index usage does not appear in the execution plan:
+When an index is used to support a foreign key, DML may make use of the index, but the index will not appear in the execution plan.
+
 
 The method used here:
 
