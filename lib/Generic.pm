@@ -23,11 +23,11 @@ sub getPassword() {
 
 	# this clearly does not work on non *nix systems
 	# Oracle Perl does not come with Term::ReadKey, so doing this hack instead
-	print "Enter password: ";
+	print "Enter password: " if -t;
 	system('stty','-echo') if -t; #Hide console input for what we type - only if on a terminal
 	chomp(my $password=<STDIN>);
 	system('stty','echo') if -t; #Unhide console input for what we type - only if on a terminal
-	print "\n";
+	print "\n" if -t;
 	return $password;
 }
 

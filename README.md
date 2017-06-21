@@ -51,6 +51,8 @@ The method used here:
 
   this table just tracks index names that are logged in the output file of the next step
   populating this table is done via a later script
+
+  input: provide a schema name where the tracking table is to be located
   </pre>
 
 <h4>collect index stats from v$sql_plan:</h4>
@@ -78,11 +80,11 @@ The method used here:
     
 <h4>monitor progress:</h4>
   <pre>
-  -- current number of appearances in gv$sql_plan by an index
-  cut -f5 -d, vsql-idx.csv| sort | uniq -c | sort -n | awk '{ if ($1 > 20) printf("%5d %s30\n", $1 ,$2) }'
+  -- current number of appearances in gv$sql_plan by an index - only those that appear 21+ times
+  tail -n +2 vsql-idx.csv | cut -f5-6 -d, | sort | uniq -c | sort -n | awk '{ if ($1 > 0) printf("%5d %30s\n", $1 ,$2, $3) }'
   
-  -- count of schema indexes that have so far appeared in gv$sql
-  cut -f5 -d, vsql-idx.csv| sort -u | wc -l
+  -- count of indexes that have so far appeared in gv$sql
+  tail -n +2 vsql-idx.csv | cut -f5-6 -d, | sort -u | wc -l
   </pre>
 
 

@@ -9,6 +9,8 @@ use Data::Dumper;
 use Getopt::Long;
 use IO::File;
 
+use lib './lib';
+
 use Index::Compare;
 use Generic qw(getPassword  closeSession);
 

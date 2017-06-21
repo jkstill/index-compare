@@ -9,11 +9,13 @@ Statspack is running but at level 5, so no sql plan data
 
 The Perl script vsql-idx.pl will collect data from v$sql_plan.
 
-All indexes owned by CT that appear in v$sql_plan will be recorded in a file created by the script
+All indexes owned by target schemas that appear in v$sql_plan will be recorded in a file created by the script
 
 Each iteration will check for new entries as of the previous timestamp
 
 JKS-DOC
+
+set -x
 
 
 # trap exits from parameter tests
@@ -26,20 +28,26 @@ usage () {
 	echo " oracle_home_SID  : used to set environment with oraenv"
 	echo " database_name    : db to connect to"
 	echo " username         : user to connect as"
-	echo " schemaname       : schema to check"
 	echo
 }
 
 ORACLE_SID=$1
 DB=$2
 USERNAME=$3
-SCHEMA=$4
 
 # causes error exit if not set
-: ${ORACLE_SID:?} ${DB:?} ${USERNAME:?} ${SCHEMA:?}
+: ${ORACLE_SID:?} ${DB:?} ${USERNAME:?} 
 
 # turn off trap
 trap 0
+
+cat <<EOF
+
+ORACLE_SID: $ORACLE_SID
+DB: $DB
+USERNAME: $USERNAME
+
+EOF
 
 unset ORAENV_ASK
 
@@ -63,14 +71,14 @@ echo
 
 trap -- '' SIGHUP
 
-while ( [[ $maxIterations > 0 ]] )
-do
+#while ( [[ $maxIterations > 0 ]] )
+#do
 
-	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database p1 --username jkstill --password --schema jkstill
+	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database p1 --username jkstill --password 
 	echo Iteration: $maxIterations
-	sleep 300
+	#sleep 300
 
-	(( maxIterations-- ))
-done >> vsql-idx_nohup.out &
+	#(( maxIterations-- ))
+#done >> vsql-idx_nohup.out &
 
 

@@ -53,7 +53,7 @@ die "Connect to  oracle failed \n" unless $dbh;
 #$dbh->{ora_check_sql} = 0;
 $dbh->{RowCacheSize} = 100;
 
-my $sql=qq{insert into ${schemaName}.used_ct_indexes(index_name) values(?)};
+my $sql=qq{insert into ${schemaName}.used_ct_indexes(owner,index_name) values(?,?)};
 
 my $sth = $dbh->prepare($sql,{ora_check_sql => 0});
 
@@ -67,15 +67,23 @@ my $sth = $dbh->prepare($sql,{ora_check_sql => 0});
 while (<>) {
 
 	chomp;
+	my $line = uc($_);
 	# should already be upper case, but...
-	my $indexName = uc($_);
+	my ($owner,$indexName) = split(/,/,$line);
+
+print qq{
+
+owner: $owner
+index: $indexName
+
+};
 	
 	eval {
 		local $SIG{__WARN__} = sub { }; # do not want to see ORA-0001 errors
    		local $dbh->{PrintError} = 0;
    		local $dbh->{RaiseError} = 1;
 
-		$sth->execute($indexName);
+		$sth->execute($owner, $indexName);
 	};
 
 

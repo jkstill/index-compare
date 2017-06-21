@@ -1,6 +1,8 @@
 
-@@get-schema &1
-
 select count(*) from dba_indexes
-where owner = '&u_schema'
+where owner in (
+	select username
+	from dba_users
+	where default_tablespace not in ('SYSTEM','SYSAUX')
+)
 /

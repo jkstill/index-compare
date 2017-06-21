@@ -21,7 +21,7 @@ usage () {
 	echo " oracle_home_SID  : used to set environment with oraenv"
 	echo " database_name    : db to connect to"
 	echo " username         : user to connect as"
-	echo " schemaname       : schema to check"
+	echo " schema           : schema were used_ct_indexes table is located"
 	echo
 }
 
@@ -52,6 +52,6 @@ echo
 echo
 
 
-(cut -f5 -d, vsql-idx.csv | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA
+( tail -n +2 vsql-idx.csv  | cut -f5-6 -d, | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA
 
 

@@ -8,8 +8,8 @@ use strict;
 
 use Getopt::Long;
 
-
-sub getPassword();
+use lib './lib';
+use Generic qw(getPassword);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -20,14 +20,12 @@ my $getPassword=0;
 my $password=undef;
 my $username=undef;
 my $sysdba=0;
-my $schemaName = 'AVAIL';
 my $help=0;
 my $debug=0;
 
 GetOptions (
 		"database=s" => \$db,
 		"username=s" => \$username,
-		"schema=s" => \$schemaName,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
 		"password!" => \$getPassword,
@@ -37,8 +35,6 @@ GetOptions (
 usage() if $help;
 
 $sysdba=2 if $sysdba;
-$schemaName = uc($schemaName);
-
 
 if ($getPassword) {
 	$password = getPassword();
@@ -74,7 +70,7 @@ if ( -r $lastTimeStampFile ) {
 my $outputFile = 'vsql-idx.csv';
 if ( ! -r $outputFile ) {
 	open OF,'>',$outputFile || die " cannot open $outputFile - $!\n";
-	print OF join(',',qw[timestamp sql_id plan_hash_value inst_id object_name objectnum]), "\n";
+	print OF join(',',qw[timestamp sql_id plan_hash_value inst_id object_owner object_name objectnum]), "\n";
 	close OF;
 }
 
@@ -90,7 +86,7 @@ my $sql=q{ select
 	, sql_id
 	, plan_hash_value
 	, inst_id
-	--, object_owner
+	, object_owner
 	, object_name
 	, object#
 	-- partitions not important for this
@@ -98,7 +94,11 @@ my $sql=q{ select
 	--, partition_stop
 	--, partition_id
 from gv$sql_plan
-where object_owner = upper(?)
+where object_owner in (
+	select username
+	from dba_users
+	where default_tablespace not in ('SYSTEM','SYSAUX')
+)
 	and object_type = 'INDEX'
 	and timestamp > to_date(?,'yyyy-mm-dd hh24:mi:ss')
 order by 1,2,3};
@@ -107,12 +107,12 @@ open OF,'>>',$outputFile || die " cannot open $outputFile - $!\n";
 
 my $sth = $dbh->prepare($sql,{ora_check_sql => 0});
 
-$sth->execute($schemaName, $lastTimeStamp);
+$sth->execute($lastTimeStamp);
 
 my $rowCount=0;
 while( my $ary = $sth->fetchrow_arrayref ) {
 	$rowCount++;
-	my ($timeStamp,$sqlID,$planHashValue,$instanceID,$objectName,$objectNum) = @{$ary};
+	my ($timeStamp,$sqlID,$planHashValue,$instanceID,$objectOwner,$objectName,$objectNum) = @{$ary};
 	print OF join(',',@{$ary}),"\n";
 	$lastTimeStamp = $timeStamp;
 }
@@ -137,7 +137,6 @@ usage: $basename
   --database  target instance
   --username  target instance account name
   --password  prompt for password 
-  --schema    schema to check
   --sysdba    logon as sysdba
 
   example:
@@ -147,21 +146,5 @@ usage: $basename
 	exit $exitVal;
 };
 
-
-sub getPassword() {
-
-	local $SIG{__DIE__} = sub {system('stty','echo');print "I was killed\n"; die }; # killed
-	local $SIG{INT} = sub {system('stty','echo');print "I was interrupted\n"; die }; # CTL-C
-	local $SIG{QUIT} = sub {system('stty','echo');print "I was told to quit\n"; die }; # ctl-\
-
-	# this clearly does not work on non *nix systems
-	# Oracle Perl does not come with Term::ReadKey, so doing this hack instead
-	print "Enter password: ";
-	system('stty','-echo'); #Hide console input for what we type
-	chomp(my $password=<STDIN>);
-	system('stty','echo'); #Unhide console input for what we type
-	print "\n";
-	return $password;
-}
 
 
