@@ -226,7 +226,7 @@ sub getIdxColInfo {
 
 	}
 	#
-	#if ($self->{DEBUG}) {
+	if ($self->{DEBUG}) {
 		print "col Args: " , Dumper(\%args);
 		print "self->getIdxColInfo: ", Dumper($self);
 	
@@ -238,7 +238,7 @@ sub getIdxColInfo {
 		TABLE: $args{TABLE}
 
 };
-#}
+}
 
 }
 
