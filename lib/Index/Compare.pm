@@ -8,7 +8,7 @@ use Carp;
 use Data::Dumper;
 use Generic qw(seriesSum compareAry);
 
-sub getIdxPairInfo($);
+sub getIdxPairInfo($$);
 
 my $progressDivisor=10;
 my $progressIndicator='.';
@@ -66,7 +66,7 @@ block_size as (
 	select value block_size from v$parameter where name = 'db_block_size'
 )
 select i.table_name, i.index_name
-   , i.leaf_blocks * bs.block_size bytes
+   , nvl(i.leaf_blocks,0) * bs.block_size bytes
    , nvl(idx.constraint_name , 'NONE') constraint_name
    , nvl(idx.constraint_type , 'NONE') constraint_type
 from dba_indexes i
@@ -134,7 +134,8 @@ sub new {
 	# SQL to check the table of known used indexes
 	$args{IDX_CHK_SQL} =  qq{select owner, index_name
 from $args{IDX_CHK_TABLE}
-where (owner,index_name) in (?,?)};
+where owner = ?
+	and index_name = ?};
 
 	croak "Attribute DBH is required in $class::new\n" unless $args{DBH};
 
@@ -211,7 +212,9 @@ sub getIdxColInfo {
 	push @{$rptOut}, "Getting column Info\n";
 
 	my $colSth = $dbh->prepare($colSql,{ora_check_sql => 0});
-	$colSth->execute($self->{OWNER}, $args{TABLE}, $self->{OWNER}, $self->{OWNER}, $args{TABLE});
+	#warn "owner and table: $args{OWNER} $args{TABLE}\n";
+
+	$colSth->execute($args{OWNER}, $args{TABLE}, $args{OWNER}, $args{OWNER}, $args{TABLE});
 	
 	while ( my $colAry = $colSth->fetchrow_arrayref) { 
 		my ($indexName,$columnList) = @{$colAry};
@@ -222,6 +225,21 @@ sub getIdxColInfo {
 		push @{$colData->{$indexName}},split(/,/,$columnList);
 
 	}
+	#
+	#if ($self->{DEBUG}) {
+		print "col Args: " , Dumper(\%args);
+		print "self->getIdxColInfo: ", Dumper($self);
+	
+		print qq{
+
+		getIdxColInfo:
+	
+		SCHEMA: $args{OWNER}
+		TABLE: $args{TABLE}
+
+};
+#}
+
 }
 
 # check the usage table to see if the index is known to be used.
@@ -230,6 +248,8 @@ sub isIdxUsed {
 	my $idxOwner = shift;
 	my $idxName = shift;
 	my $dbh = $self->{DBH};
+
+	#warn "owner and index: $idxOwner, $idxName\n";
 
 	my $sth = $dbh->prepare($self->{IDX_CHK_SQL},{ora_check_sql => 0});
 	$sth->execute($idxOwner, $idxName);
@@ -244,12 +264,14 @@ sub isIdxUsed {
 }
 
 
-sub getIdxPairInfo($) {
+sub getIdxPairInfo($$) {
 	my $self = shift;
-	my ($idxHash) = @_;
+	my ($idxHash, $args) = @_;
 	my $dbh = $self->{DBH};
 
-	my $schema = $self->{SCHEMA};
+	#warn 'getIdxPairInfo Self: ' , Dumper($self);
+	#warn "idxHash: ", Dumper($idxHash);
+	#warn "Args: ", Dumper($args);
 
 	my $sth = $dbh->prepare($idxInfoSql, {ora_check_sql => 0});
 	# prepopulated with 2 index names as keys
@@ -260,13 +282,17 @@ sub getIdxPairInfo($) {
 		#
 		#print "DBI-DEBUG: index name: $idx\n";
 
-		$sth->execute($schema, $schema, $idx);
+		#warn "owner ,table, and index:  $args->{OWNER} $args->{TABLE_NAME} $idx\n";
+
+		$sth->execute($args->{OWNER}, $args->{OWNER}, $idx);
 		#my ($indexName, $bytes, $constraintType) = $idxSth->fetchrow;
 		#push @{$idxHash->{$idx}}, $sth->fetchrow_arrayref;
 
 		while (my $ary = $sth->fetchrow_arrayref ) {
-			#print "DBI-DEBUG: ", join(' - ', @{$ary}), "\n";
+			#warn "DBI-DEBUG: ", join(' - ', @{$ary}), "\n";
 			# bytes, constraint_name, constraint_type
+			#warn "bytes, constraint, type: $ary->[2], $ary->[3], $ary->[4]\n";
+
 			push @{$idxHash->{$idx}}, ($ary->[2], $ary->[3], $ary->[4]);
 			
 		}
@@ -275,7 +301,7 @@ sub getIdxPairInfo($) {
 
 	}
 
-	#print "DEBUG: getIdxPairInfo" , Dumper($idxHash);
+	#warn "DEBUG: getIdxPairInfo" , Dumper($idxHash);
 
 }
 
@@ -298,6 +324,9 @@ sub processTabIdx {
 
 	push @{$rptOut}, '#' x 120, "\n";
 	push @{$rptOut}, "Working on table ${tableOwner}.${tableName}\n";
+
+
+	#warn "owner and table $tableOwner $tableName\n";
 
 
 	#$compare->getIdxColInfo (
@@ -453,14 +482,14 @@ sub processTabIdx {
 			#push @{$rptOut}, sprintf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 
 
-			if ( $self->isIdxUsed($indexes[$idxBase]) ) {
+			if ( $self->isIdxUsed($tableOwner,$indexes[$idxBase]) ) {
 				push @{$rptOut}, "Index $indexes[$idxBase] is known to be used in Execution Plans\n";
 				$idxInfo[$csvColByName{'Known Used'}] = 'Y';
 			} else {
 				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 			}
 
-			if ( $self->isIdxUsed($indexes[$compIdx]) ) {
+			if ( $self->isIdxUsed($tableOwner,$indexes[$compIdx]) ) {
 				push @{$rptOut}, "Index $indexes[$compIdx] is known to be used in Execution Plans\n";
 			}
 
@@ -469,8 +498,8 @@ sub processTabIdx {
 				$leastIdxName => undef,
 				$mostIdxName => undef
 			);
-			$self->getIdxPairInfo(\%idxPairInfo);
-			#print '%idxPairInfo: ' , Dumper(\%idxPairInfo);
+			$self->getIdxPairInfo(\%idxPairInfo, { OWNER => $tableOwner, TABLE_NAME => $tableName } );
+			#warn '%idxPairInfo: ' , Dumper(\%idxPairInfo);
 
 
 			# report if any constraints use one or both of the indexes

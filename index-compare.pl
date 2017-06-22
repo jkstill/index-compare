@@ -136,6 +136,8 @@ if ($csvOut) {
 #TABLE: while ( my $tableName = $compare->getTable() ) {
 while ( my $tableName = $compare->getTable() ) {
 
+	#warn "Table: $tableName\n";
+
 	$compare->processTabIdx (
 		TABLE => $tableName,
 		DEBUG => $debug,
