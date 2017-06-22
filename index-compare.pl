@@ -158,15 +158,16 @@ if ( $csvOut ) {
 	}
 }
 
-# print the log
-foreach my $line (@rptOut) { print $line }
-
 if ($debug) {
 	push @rptOut, 'csvIndexes: ';
 	foreach my $line ( Dumper(\%csvIndexes)) { push @rptOut, $line }
-	push @rptOut, '@rptOut: ';
-	foreach my $line ( Dumper(\@rptOut) ) { push @rptOut, $line }
+	# not sure why this was done
+	#push @rptOut, '@rptOut: ';
+	#foreach my $line ( Dumper(\@rptOut) ) { push @rptOut, $line }
 }
+
+# print the log
+foreach my $line (@rptOut) { print $line }
 
 # end of main
 

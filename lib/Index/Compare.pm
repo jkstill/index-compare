@@ -305,6 +305,7 @@ sub getIdxPairInfo($$) {
 
 }
 
+# this function is too big and should be broken up
 sub processTabIdx {
 	my $self = shift;
 	my (%args) = @_;
@@ -589,14 +590,13 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			foreach my $line ( Dumper(\@idxInfo)) { push @{$rptOut}, $line };
 		}
 
-		push @{$csvIndexes->{ $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
+		push @{$csvIndexes->{ $tableOwner . '.' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
 	} # outer index loop
 
 
 	push @{$rptOut}, "\tTotal Comparisons Made: $indexesComparedCount\n\n";
 
 	#print "\t!! Number of Comparisons made was $indexesComparedCount - should have been $numberOfComparisons !!\n" if ($numberOfComparisons != $indexesComparedCount );
-
 
 }
 
