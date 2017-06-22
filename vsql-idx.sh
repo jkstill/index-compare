@@ -15,8 +15,6 @@ Each iteration will check for new entries as of the previous timestamp
 
 JKS-DOC
 
-set -x
-
 
 # trap exits from parameter tests
 trap "usage;exit 1" 0
