@@ -181,10 +181,9 @@ $basename
 
 usage: $basename - analyze schema indexes for redundancy
 
-   $basename --database --username --password --schema scott
+   $basename --database --username --password 
 
   --database do not specify for local SYSDBA connection (ORACLE_SID must be set)
-  --schema   the database schema to analyze
   --username do not specify for local SYSDBA connection
   --password specifies that user will be asked for password
              this option does NOT accept a password
@@ -205,8 +204,7 @@ usage: $basename - analyze schema indexes for redundancy
 
 	examples here:
 
-		$basename --schema SCOTT
-		$basename --schema SCOTT --database orcl --password --sysdba
+		$basename  --database orcl --password --sysdba
 
 	};
 
