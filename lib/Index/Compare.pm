@@ -471,14 +471,17 @@ sub processTabIdx {
 			my $mostIdxNameLen = length($mostIdxName);
 			my $attention='';
 
-			$idxInfo[$csvColByName{'Redundant'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
-			$idxInfo[$csvColByName{'Column Dup%'}] = $leastColSimilarCountRatio;
-			$idxInfo[$csvColByName{'Drop Immediately'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+			if ( $leastIdxName eq $indexes[$idxBase] ) {
+				$idxInfo[$csvColByName{'Redundant'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
+				$idxInfo[$csvColByName{'Column Dup%'}] = $leastColSimilarCountRatio;
+				$idxInfo[$csvColByName{'Drop Immediately'}] = $leastColSimilarCountRatio == 100 ? 'Y' : 'N';
 
-			if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
-				$attention = '====>>>> ';
-				$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+				if ( $leastColSimilarCountRatio >= $idxRatioAlertThreshold ) {
+					$attention = '====>>>> ';
+					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
+				}
 			}
+
 			push @{$rptOut}, sprintf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 			#push @{$rptOut}, sprintf ("The leading %3.2f%% of columns for index %30s are shared with %30s\n", $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
 
