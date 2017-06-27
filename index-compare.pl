@@ -17,13 +17,13 @@ use Generic qw(getPassword  closeSession);
 my $debug=0;
 sub csvPrint($$$$);
 
-my $db=undef; # left as undef for local sysdba connection
+my $db=''; # left as undef for local sysdba connection
 # the --password option will not accept a password
 # but just indicates whether a password will be necessary
 # if required, the password will be requested
 my $getPassword=0;
-my $password=undef;
-my $username=undef;
+my $password='';
+my $username='';
 my $sysdba=0;
 my $csvFile=undef;
 my $csvDelimiter=',';
