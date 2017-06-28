@@ -432,14 +432,15 @@ sub processTabIdx {
 			my ($leastColCount, $mostColCount);
 			my ($leastIdxName, $mostIdxName);
 
+			# +1 to get actual account due to zero based array index
 			if ( $#idxCols1 < $#idxCols2 ) {
-				$leastColCount = $#idxCols1;
-				$mostColCount = $#idxCols2;
+				$leastColCount = $#idxCols1 + 1;
+				$mostColCount = $#idxCols2 + 1;
 				$leastIdxName = $indexes[$idxBase];
 				$mostIdxName = $indexes[$compIdx];
 			} else {
-				$leastColCount = $#idxCols2;
-				$mostColCount = $#idxCols1;
+				$leastColCount = $#idxCols2 + 1;
+				$mostColCount = $#idxCols1 + 1;
 				$leastIdxName = $indexes[$compIdx];
 				$mostIdxName = $indexes[$idxBase];
 			};
@@ -477,7 +478,8 @@ sub processTabIdx {
 			#$idxInfo[$csvColByName{'SQL'}] = [];
 
 
-			my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
+			#my $leastColSimilarCountRatio = ( $leadingColCount / ($leastColCount+1)  ) * 100;
+			my $leastColSimilarCountRatio = ( $leadingColCount / $leastColCount  ) * 100;
 			my $leastIdxNameLen = length($leastIdxName);
 			my $mostIdxNameLen = length($mostIdxName);
 			my $attention='';
