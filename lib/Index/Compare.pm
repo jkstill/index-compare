@@ -457,7 +457,7 @@ sub processTabIdx {
 #};
 
 			my $leadingColCount = 0;
-			foreach my $colID ( 0 .. $leastColCount ) {
+			foreach my $colID ( 0 .. ($leastColCount - 1)) {
 				last unless ( $idxCols1[$colID] eq $idxCols2[$colID]);
 				$leadingColCount++;
 			}
