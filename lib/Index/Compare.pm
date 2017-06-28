@@ -444,6 +444,17 @@ sub processTabIdx {
 				$mostIdxName = $indexes[$idxBase];
 			};
 
+#push @{$rptOut},  qq{
+
+  #leastColCount: $leastColCount
+  #mostColCount: $mostColCount
+  #leastIdxName: $leastIdxName
+      #first column: $idxCols1[0]
+  #mostIdxName: $mostIdxName
+      #first column: $idxCols2[0]
+
+#};
+
 			my $leadingColCount = 0;
 			foreach my $colID ( 0 .. $leastColCount ) {
 				last unless ( $idxCols1[$colID] eq $idxCols2[$colID]);
@@ -480,6 +491,66 @@ sub processTabIdx {
 					$attention = '====>>>> ';
 					$idxInfo[$csvColByName{'Drop Candidate'}] = 'Y';
 				}
+			} else {
+
+#push @{$rptOut},  qq{
+
+#leastColCount: $leastColCount
+#leadingColCount: $leadingColCount
+
+
+#};
+
+=head1 Column Duplication %
+
+ This bit of code is used to determine the percentage of leading columns from one index that are reproduced in another index
+
+ Say we have the following table with 2 indexes
+
+ mytab
+ c1
+ c2
+ c3
+ c4
+ c5
+
+ idx1(c1,c2)
+ idx2(c1,c2,c3,c4)
+
+ it is clearly seen in this example that 100% of the columns in idx1 are reproduced in idx2.
+ therefor the idx1 index has a redundant column list and *may* not be nessary
+
+ now consider these indexes
+
+ idx1(c1,c2,c5)
+ idx2(c1,c2,c3,c4)
+
+ now only the 2 leading columns in idx1 are duplicated in idx2.
+
+ the percentage of duplicate columns is 66.6%.
+
+ 2 = number of leading columns in idx1 duplicated in the leading columns of idx2
+ 3 = total number of columns in idx1
+
+ pct of idx1 columns duplidated in idx2:
+ 
+   leadingColCount / idxColCount * 100
+
+   2 / 3 * 100 = 66.6
+
+
+
+=cut
+
+				# is this not lovely? 
+				# standard pct:  leadingColCount / leastColCount * 100
+				# but, the idx with the least number of columns may be the one the current index is being compared to
+				# this would tend to fix false positives for considering the index under consideration as eligible to be dropped.
+				# if that is the case, multiply by 0 rather than 100
+				$idxInfo[$csvColByName{'Column Dup%'}] = ( $leadingColCount / $leastColCount ) * ( $leastIdxName eq $indexes[$idxBase] ? 100 : 0 );
+
+				# this one is incorrect
+				#$idxInfo[$csvColByName{'Column Dup%'}] = ( $leastColCount / ($leadingColCount > 0 ? $leadingColCount : 1)  ) * ( $leadingColCount > 0 ? 100 : 0); 
 			}
 
 			push @{$rptOut}, sprintf ("%-10s The leading %3.2f%% of columns for index %${leastIdxNameLen}s are shared with %${mostIdxNameLen}s\n", $attention, $leastColSimilarCountRatio, $leastIdxName, $mostIdxName);
