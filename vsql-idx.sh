@@ -72,7 +72,7 @@ trap -- '' SIGHUP
 while ( [[ $maxIterations > 0 ]] )
 do
 
-	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database p1 --username jkstill --password 
+	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database $DB --username $USERNAME --password 
 	echo Iteration: $maxIterations
 	sleep 300
 
