@@ -47,4 +47,5 @@ begin
 end;
 /
 
+whenever sqlerror continue
 
