@@ -52,6 +52,6 @@ echo
 echo
 
 
-( tail -n +2 vsql-idx.csv  | cut -f5-6 -d, | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA
+( tail -n +2 csv/vsql-idx.csv  | cut -f5-6 -d, | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA
 
 

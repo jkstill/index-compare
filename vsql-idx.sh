@@ -67,6 +67,9 @@ stty echo
 echo
 echo
 
+# create dir for csv files
+mkdir -p csv
+
 trap -- '' SIGHUP
 
 while ( [[ $maxIterations > 0 ]] )

@@ -67,7 +67,7 @@ if ( -r $lastTimeStampFile ) {
 		
 }
 
-my $outputFile = 'vsql-idx.csv';
+my $outputFile = 'csv/vsql-idx.csv';
 if ( ! -r $outputFile ) {
 	open OF,'>',$outputFile || die " cannot open $outputFile - $!\n";
 	print OF join(',',qw[timestamp sql_id plan_hash_value inst_id object_owner object_name objectnum]), "\n";
