@@ -132,10 +132,12 @@ sub new {
 	$args{RATIO} = 75 unless defined($args{RATIO});
 	#
 	# SQL to check the table of known used indexes
-	$args{IDX_CHK_SQL} =  qq{select owner, index_name
-from $args{IDX_CHK_TABLE}
-where owner = ?
-	and index_name = ?};
+	$args{IDX_CHK_SQL} =  qq{select u.owner, u.index_name
+from $args{IDX_CHK_TABLE} u
+join dba_indexes i on i.owner = u.owner
+	and i.index_name = u.index_name
+where u.owner = ?
+	and u.index_name = ?};
 
 	croak "Attribute DBH is required in $class::new\n" unless $args{DBH};
 
