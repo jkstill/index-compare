@@ -154,6 +154,12 @@ closeSession($dbh);
 # create the csv file
 if ( $csvOut ) {
 	foreach my $tabIdx ( sort keys %csvIndexes ) {
+		# workaround for a bug I was tracking down
+		# fixed the bug, but no need to remove this trap
+		if ( $#{$csvIndexes{$tabIdx}} < 0 ) {
+			print "csvPrint Call - null array tabIdx: $tabIdx\n";
+			next;
+		}
 		csvPrint($csvFH,$csvDelimiter,$colnameDelimiter,$csvIndexes{$tabIdx});
 	}
 }

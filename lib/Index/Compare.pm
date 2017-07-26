@@ -50,6 +50,7 @@ where owner in (
 		where default_tablespace not in ('SYSTEM','SYSAUX')
 	)
 	and table_name not like 'DR$%$I%' -- Text Indexes
+	--and owner = 'JKSTILL' -- used for quick runtime during debugging
 order by owner, table_name
 };
 
@@ -132,6 +133,7 @@ sub new {
 	$args{RATIO} = 75 unless defined($args{RATIO});
 	#
 	# SQL to check the table of known used indexes
+	# joined do dba_indexes to ensure the index still exists
 	$args{IDX_CHK_SQL} =  qq{select u.owner, u.index_name
 from $args{IDX_CHK_TABLE} u
 join dba_indexes i on i.owner = u.owner
@@ -329,6 +331,8 @@ sub processTabIdx {
 	push @{$rptOut}, "Working on table ${tableOwner}.${tableName}\n";
 
 
+	$|=1;
+
 	#warn "owner and table $tableOwner $tableName\n";
 
 
@@ -355,9 +359,15 @@ sub processTabIdx {
 
 	# returns 0 if only 1 index
 	#print "Number of indexes: " , $#indexes ,"\n";
-	push @{$rptOut}, "Number of indexes: " , $#indexes ,"\n";
-	if ($#indexes < 1 ) {
+	push @{$rptOut}, "Number of indexes: " , ($#indexes + 1) ,"\n";
+	if ($#indexes == 0 ) {
 		push @{$rptOut}, "Skipping comparison as there is only 1 index on $tableName\n";
+		#next TABLE;
+		return;
+	}
+
+	if ($#indexes < 0 ) {
+		push @{$rptOut}, "Skipping comparison as there are no indexes $tableName\n";
 		#next TABLE;
 		return;
 	}
@@ -372,11 +382,22 @@ sub processTabIdx {
 	my @idxInfo=(); # temp storage for data to put in %csvIndexes
 
 	# compare from first index to penultimate index as first of a pair to compare
-	IDXCOMP: for (my $idxBase=0; $idxBase < ($#indexes); $idxBase++ ) {
+	#IDXCOMP: for (my $idxCounter=0; $idxCounter < $#indexes; $idxCounter++ ) 
+	IDXCOMP: for (my $idxCounter=0; $idxCounter <= $#indexes; $idxCounter++ ) {
+
+		my $idxBase = $idxCounter;
 
 		# start with first index, compare columns to the rest of the indexes
 		# then go to next index and compare to successive indexes
-		for (my $compIdx=$idxBase+1; $compIdx < ($#indexes + 1); $compIdx++ ) {
+		#for (my $idxCounter2=$idxBase+1; $idxCounter2 <= $#indexes; $idxCounter2++ ) {
+	
+		my @bc=($idxBase+1 .. $#indexes);
+
+		if ($idxCounter == $#indexes) { @bc=(0) }
+
+		foreach my $idxCounter2 ( @bc ) {
+
+			my $compIdx = $idxCounter2;
 
 			# show progress on terminal
 			print STDERR $progressIndicator unless $progressCounter++ % $progressDivisor;
@@ -387,11 +408,9 @@ sub processTabIdx {
 			# this can happen when a single index is supporting two or more constraints, such as Unique and Primary
 			# possibly only if it is also the only index
 			# putting code above to skip these
-			my $indexesIdentical=0;
 			if ($indexes[$idxBase] eq $indexes[$compIdx]) {
 				push @{$rptOut}, "Indexes $indexes[$idxBase] and $indexes[$compIdx] are identical\n";
-				$indexesIdentical=1;
-				next IDXCOMP; # naked 'next' was going to the outer loop - dunno why
+				next IDXCOMP;
 			}
 
 			push @{$rptOut}, "\t",'=' x 100, "\n";
@@ -469,7 +488,7 @@ sub processTabIdx {
 			$idxInfo[$csvColByName{'Index Name'}] = $indexes[$idxBase];
 			$idxInfo[$csvColByName{'Compared To'}] = $indexes[$compIdx];
 			$idxInfo[$csvColByName{'Size'}] = 0; # only populated if a drop candidate
-			$idxInfo[$csvColByName{'Constraint Type'}] = 0; # only populated if a drop candidate
+			$idxInfo[$csvColByName{'Constraint Type'}] = 'NA'; # only populated if a drop candidate
 			$idxInfo[$csvColByName{'Redundant'}] = 'N';
 			$idxInfo[$csvColByName{'Column Dup%'}] = 0;
 			$idxInfo[$csvColByName{'Known Used'}] = 'N';
@@ -606,8 +625,12 @@ sub processTabIdx {
 					warn "Unknown Constraint type of $constraintType!\n";
 				}
 			}
+
+			#last if ($idxBase == $#indexes );
 		} # inner index loop
 
+		#print "TMP DEBUG: Owner: $tableOwner\n";
+		#print "TMP DEBUG: Table: $tableName\n";
 		push @{$rptOut}, qq{
 
 Debug: csvIndexes
@@ -616,8 +639,12 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 
 		} if $debug;
 
+
+
 		#push @{$idxInfo[$csvColByName{'SQL'}]}, 'alter index ' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' invisible;';
 		#push @{$idxInfo[$csvColByName{'SQL'}]}, 'alter index ' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' visible;';
+
+#print STDERR "\n DEBUG idxInfo:", Dumper(\@idxInfo),"\n";
 
 		my $idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-invisible.sql';
 		my $idxDDLFh = IO::File->new("$dirs->{'indexDDL'}/$idxDDLFile",'w');
@@ -668,9 +695,41 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			foreach my $line ( Dumper(\@idxInfo)) { push @{$rptOut}, $line };
 		}
 
-		push @{$csvIndexes->{ $tableOwner . '.' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
+
+		#push @{$csvIndexes->{ $tableOwner . '.' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
+		push @{$csvIndexes->{ $tableOwner . '.' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] . '.' . $idxInfo[$csvColByName{'Constraint Type'}] }}, @idxInfo;
+
 	} # outer index loop
 
+=head1 this is the code to catch the last index - I do not like this, but have not yet got another method to work correctly
+
+			# reuse this bit just to get bytes
+			my %idxPairInfo = (
+				$indexes[$#indexes] => undef,
+				$indexes[0] => undef
+			);
+			$self->getIdxPairInfo(\%idxPairInfo, { OWNER => $tableOwner, TABLE_NAME => $tableName } );
+
+			my ($idxBytes) = @{$idxPairInfo{$indexes[$#indexes]}};
+
+			$idxInfo[$csvColByName{'Table Owner'}] = $tableOwner;
+			$idxInfo[$csvColByName{'Table Name'}] = $tableName;
+			$idxInfo[$csvColByName{'Index Name'}] = $indexes[$#indexes];
+			$idxInfo[$csvColByName{'Compared To'}] = 'NA';
+			$idxInfo[$csvColByName{'Size'}] = $idxBytes; # only populated if a drop candidate
+			$idxInfo[$csvColByName{'Constraint Type'}] = 0; # only populated if a drop candidate
+			$idxInfo[$csvColByName{'Redundant'}] = 'N';
+			$idxInfo[$csvColByName{'Column Dup%'}] = 0;
+			$idxInfo[$csvColByName{'Known Used'}] = 'N';
+			$idxInfo[$csvColByName{'Drop Candidate'}] = 'N';
+			$idxInfo[$csvColByName{'Drop Immediately'}] = 'N';
+			$idxInfo[$csvColByName{'Create ColGroup'}] = 'NA';
+			$idxInfo[$csvColByName{'Columns'}] = $colData{$indexes[$#indexes]};
+			#$idxInfo[$csvColByName{'SQL'}] = [];
+
+		push @{$csvIndexes->{ $tableOwner . '.' . $idxInfo[$csvColByName{'Table Name'}] . '.' . $idxInfo[$csvColByName{'Index Name'}] }}, @idxInfo;
+
+=cut
 
 	push @{$rptOut}, "\tTotal Comparisons Made: $indexesComparedCount\n\n";
 
