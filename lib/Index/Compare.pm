@@ -389,7 +389,11 @@ sub processTabIdx {
 
 		# start with first index, compare columns to the rest of the indexes
 		# then go to next index and compare to successive indexes
-		#for (my $idxCounter2=$idxBase+1; $idxCounter2 <= $#indexes; $idxCounter2++ ) {
+		# when the outer loop is on the last iteration, set the @bc array to 0 
+		# so that the the final index in the array for the table - $indexes[$#indexes] = is compared to the first index only -  $indexes[0]
+		# doing so causes that index to appear in the CSV output
+		#
+		# see idx-loop-compare.pl for a demo of this
 	
 		my @bc=($idxBase+1 .. $#indexes);
 
@@ -407,7 +411,6 @@ sub processTabIdx {
 			# do not compare an index to itself
 			# this can happen when a single index is supporting two or more constraints, such as Unique and Primary
 			# possibly only if it is also the only index
-			# putting code above to skip these
 			if ($indexes[$idxBase] eq $indexes[$compIdx]) {
 				push @{$rptOut}, "Indexes $indexes[$idxBase] and $indexes[$compIdx] are identical\n";
 				next IDXCOMP;
