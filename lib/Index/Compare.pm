@@ -50,7 +50,7 @@ where owner in (
 		where default_tablespace not in ('SYSTEM','SYSAUX')
 	)
 	and table_name not like 'DR$%$I%' -- Text Indexes
-	--and owner = 'JKSTILL' -- used for quick runtime during debugging
+	and owner like ?
 order by owner, table_name
 };
 
@@ -158,7 +158,7 @@ where u.owner = ?
 	
 		if ( ! @tables ) {
 			my $tabSth = $dbh->prepare($tabSql,{ora_check_sql => 0});
-			$tabSth->execute();
+			$tabSth->execute(uc($self->{SCHEMA}));
 			while ( my $table = $tabSth->fetchrow_arrayref) { 
 				# table_name is 'owner.table_name'
 				#print "Table: $table->[0]\n";

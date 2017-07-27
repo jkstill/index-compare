@@ -27,6 +27,7 @@ my $username='';
 my $sysdba=0;
 my $csvFile=undef;
 my $csvDelimiter=',';
+my $schema2Chk='%';
 my $colnameDelimiter='|'; # used to separate columns and SQL statements in the CSV output field - must be different than csvDelimiter
 my $csvOut=0;
 # indexes will be included in CSV output when the idxRatioAlertThreshold is met
@@ -69,6 +70,7 @@ GetOptions (
 		"csv-file=s" => \$csvFile,
 		"csv-delimiter=s" => \$csvDelimiter,
 		"column-delimiter=s" => \$colnameDelimiter,
+		"schema=s" => \$schema2Chk,
 		"help!" => \$help,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
@@ -118,7 +120,8 @@ die "Connect to  oracle failed \n" unless $dbh;
 my $compare = new Index::Compare (
 	DBH => $dbh,
 	IDX_CHK_TABLE => $idxChkTable,
-	RATIO	=> $idxRatioAlertThreshold
+	RATIO	=> $idxRatioAlertThreshold,
+	SCHEMA => $schema2Chk
 );
 
 
@@ -202,11 +205,14 @@ usage: $basename - analyze schema indexes for redundancy
 					 default is 75 - if 75% of the leading columns of the index with the least number 
 					 of columns are the same as the other column, provide extra reporting.
 
-	 --sysdba    connect as sysdba
+  --schema    Examine indexes for this schema(s) - defaults to '%' which is all schemas other than SYS and SYSTEM
+              SQL wildcards can be used
 
-	 --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
-	 --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
-	 --column-delimiter  Delimiter to separate column names in CSV field for index column names - defaults to |
+  --sysdba    connect as sysdba
+
+  --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
+  --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
+  --column-delimiter  Delimiter to separate column names in CSV field for index column names - defaults to |
 
 	examples here:
 
