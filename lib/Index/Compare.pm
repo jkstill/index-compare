@@ -702,24 +702,6 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 		# generate ddl for indexes - make invisible/visible
 		genIdxDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}],$dirs->{'indexDDL'}) if $genIndexDDL;
 
-=head1 delete when sub works
-
-		my $idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-invisible.sql';
-		my $idxDDLFh = IO::File->new("$dirs->{'indexDDL'}/$idxDDLFile",'w');
-		die "Could not create $idxDDLFile\n" unless $idxDDLFh;
-		print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' invisible;';
-
-		$idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-visible.sql';
-		$idxDDLFh = IO::File->new("$dirs->{'indexDDL'}/$idxDDLFile",'w');
-		die "Could not create $idxDDLFile\n" unless $idxDDLFh;
-		print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' visible;';
-
-		close $idxDDLFh;
-
-=cut
-
-
-
 =head1 create column group DDL as necessary
 		
  The optimizer may be using statistics gathered on index columns during optimization
@@ -743,20 +725,6 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			my  $colgrpDDL = genColGrpDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}], $dirs->{'colgrpDDL'},  $columns);
 			push @{$rptOut}, "ColGrp DDL:  $colgrpDDL\n";
 			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
-
-=head1 delete when sub works
-
-			my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
-
-			my $colgrpFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-colgrp.sql';
-
-			my $colgrpFH = IO::File->new("$dirs->{'colgrpDDL'}/$colgrpFile",'w');
-			die "Could not create $colgrpFile\n" unless $colgrpFH;
-
-			print $colgrpFH "$colgrpDDL\n";
-			close $colgrpFH;
-
-=cut
 
 		}
 
