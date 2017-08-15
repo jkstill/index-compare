@@ -246,7 +246,7 @@ usage: $basename - analyze schema indexes for redundancy
   --gen-ddl           generate both column group and index DDL - default is enabled
                       the only value for this option is to use --no-gen-ddl to disable both
 
-  --sysdba    connect as sysdba
+  --sysdba            connect as sysdba - do not specify database or username
 
   --csv-file          File name for CSV output.  There will be no CSV output unless the file is named
   --csv-delimiter     Delimiter to separate fields in CSV output - defaults to ,
@@ -255,6 +255,7 @@ usage: $basename - analyze schema indexes for redundancy
 	examples here:
 
 		$basename  --database orcl --password --sysdba
+		$basename  --sysdba
 
 	};
 

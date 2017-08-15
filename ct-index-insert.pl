@@ -121,11 +121,12 @@ usage: $basename
   --username   target instance account name
   --password   prompt for password
   --schema     schema where used_ct_indexes table is located
-  --sysdba		logon as sysdba
+  --sysdba		logon as sysdba - do not specify database or username
 
   example:
 
-  $basename -database dv07 -username scott -password -sysdba
+  $basename --database dv07 --username scott --password --sysdba
+  $basename --sysdba
 /;
 	exit $exitVal;
 };
