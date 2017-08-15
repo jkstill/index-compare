@@ -38,6 +38,15 @@ my @rptOut=();
 # SQL statements are all written to separate files
 # some SQL requires commas which messes up our comma delimited file
 # also makes the spreadsheet much more usable
+# 
+# there is an option to disable either or both of these as
+# databases with a very large number of objects will require a lot of extra time to generate these
+# these are by default enabled and must be explicitly disabled
+# --no-gen-ddl will disable both generate of both column group DDL and index DDL
+
+my $genColGrpsDDL=1;
+my $genIndexDDL=1;
+my $genDDL=1;
 
 my %dirs = (
 	'colgrpDDL' => 'column-group-ddl',
@@ -71,6 +80,9 @@ GetOptions (
 		"csv-delimiter=s" => \$csvDelimiter,
 		"column-delimiter=s" => \$colnameDelimiter,
 		"schema=s" => \$schema2Chk,
+		"gen-column-groups!" => \$genColGrpsDDL,
+		"gen-index-ddl!" => \$genIndexDDL,
+		"gen-ddl!" => \$genDDL,
 		"help!" => \$help,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
@@ -80,6 +92,21 @@ GetOptions (
 usage() if $help;
 
 $sysdba=2 if $sysdba;
+
+if ( ! $genDDL ) {
+	$genColGrpsDDL=0;
+	$genIndexDDL=0;
+}
+
+if ($debug ) {
+
+	print "\n";
+	print "Generate Column Groups: " , $genColGrpsDDL ? 'Yes' : 'No' , "\n";
+	print "    Generate Index DDL: " , $genIndexDDL ? 'Yes' : 'No' , "\n";
+	print "\n";
+
+	#exit;
+}
 
 if ($getPassword) {
 	$password = getPassword();
@@ -121,7 +148,9 @@ my $compare = new Index::Compare (
 	DBH => $dbh,
 	IDX_CHK_TABLE => $idxChkTable,
 	RATIO	=> $idxRatioAlertThreshold,
-	SCHEMA => $schema2Chk
+	SCHEMA => $schema2Chk,
+	GEN_COLGRP_DDL => $genColGrpsDDL,
+	GEN_INDEX_DDL => $genIndexDDL,
 );
 
 
@@ -207,6 +236,15 @@ usage: $basename - analyze schema indexes for redundancy
 
   --schema    Examine indexes for this schema(s) - defaults to '%' which is all schemas other than SYS and SYSTEM
               SQL wildcards can be used
+
+  --gen-column-groups generate column group DDL - default is enabled
+                      disable with --no-gen-column-groups
+
+  --gen-index-ddl     generate index DDL - default is enabled
+                      disable with --no-gen-index-ddl
+
+  --gen-ddl           generate both column group and index DDL - default is enabled
+                      the only value for this option is to use --no-gen-ddl to disable both
 
   --sysdba    connect as sysdba
 

@@ -8,7 +8,10 @@ use Carp;
 use Data::Dumper;
 use Generic qw(seriesSum compareAry);
 
+# prototypes
 sub getIdxPairInfo($$);
+sub genIdxDDL($$$$);
+sub genColGrpDDL($$$$$);
 
 my $progressDivisor=10;
 my $progressIndicator='.';
@@ -309,6 +312,41 @@ sub getIdxPairInfo($$) {
 
 }
 
+sub genIdxDDL ($$$$) { 
+
+	my ($schema2Chk, $tableName, $indexName, $ddlDir) = @_;
+
+	my $idxDDLFile = "${tableName}-" . $indexName . '-invisible.sql';
+	my $idxDDLFh = IO::File->new("${ddlDir}/${idxDDLFile}",'w');
+
+	croak "Could not create $idxDDLFile\n" unless $idxDDLFh;
+	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' invisible;';
+
+	$idxDDLFile = "${tableName}-" . $indexName . '-visible.sql';
+	$idxDDLFh = IO::File->new("${ddlDir}/${idxDDLFile}",'w');
+	croak "Could not create $idxDDLFile\n" unless $idxDDLFh;
+	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' visible;';
+
+	close $idxDDLFh;
+}
+
+sub genColGrpDDL ($$$$$) {
+
+	my ($schema2Chk, $tableName, $indexName, $ddlDir, $columns) = @_;
+
+	my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
+
+	my $colgrpFile = "${tableName}-" . $indexName . '-colgrp.sql';
+
+	my $colgrpFH = IO::File->new("${ddlDir}/${colgrpFile}",'w');
+	croak "Could not create $colgrpFile\n" unless $colgrpFH;
+
+	print $colgrpFH "$colgrpDDL\n";
+	close $colgrpFH;
+}
+
+
+
 # this function is too big and should be broken up
 sub processTabIdx {
 	my $self = shift;
@@ -344,6 +382,18 @@ sub processTabIdx {
 		IDXARY => \@indexes,
 		RPTARY => $rptOut,
 	);
+
+	my $genIndexDDL = $self->{GEN_INDEX_DDL};
+	my $genColGrpDDL = $self->{GEN_COLGRP_DDL};
+
+	print qq {
+
+	sub processTabIdx
+	 genIndexDDL: $genIndexDDL
+	genColGrpDDL: $genColGrpDDL
+	
+	} if $debug;
+
 
 	#print 'Col Data: ', Dumper(\%colData) if $debug;
 	#print 'Indexes: ', Dumper(\@indexes) if $debug;
@@ -649,6 +699,11 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 
 #print STDERR "\n DEBUG idxInfo:", Dumper(\@idxInfo),"\n";
 
+		# generate ddl for indexes - make invisible/visible
+		genIdxDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}],$dirs->{'indexDDL'}) if $genIndexDDL;
+
+=head1 delete when sub works
+
 		my $idxDDLFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-invisible.sql';
 		my $idxDDLFh = IO::File->new("$dirs->{'indexDDL'}/$idxDDLFile",'w');
 		die "Could not create $idxDDLFile\n" unless $idxDDLFh;
@@ -660,6 +715,9 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 		print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $idxInfo[$csvColByName{'Index Name'}] . ' visible;';
 
 		close $idxDDLFh;
+
+=cut
+
 
 
 =head1 create column group DDL as necessary
@@ -676,11 +734,19 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			$idxInfo[$csvColByName{'Drop Candidate'}] eq 'Y' 
 				and 
 			$idxInfo[$csvColByName{'Column Dup%'}] == 0
+				and
+			$genColGrpDDL
 		) {
 			my $columns = join(',',@{$idxInfo[$csvColByName{'Columns'}]});
-			my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
+			# generate ddl for column groups
 
+			my  $colgrpDDL = genColGrpDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}], $dirs->{'colgrpDDL'},  $columns);
 			push @{$rptOut}, "ColGrp DDL:  $colgrpDDL\n";
+			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
+
+=head1 delete when sub works
+
+			my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
 
 			my $colgrpFile = "${tableName}-" . $idxInfo[$csvColByName{'Index Name'}] . '-colgrp.sql';
 
@@ -690,7 +756,8 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			print $colgrpFH "$colgrpDDL\n";
 			close $colgrpFH;
 
-			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
+=cut
+
 		}
 
 		if ($debug) {
