@@ -11,6 +11,7 @@ use Data::Dumper;
 # prototypes
 sub insertSQLText ($$$);
 sub insertPlanText ($$$$);
+sub insertSqlPlanPair($$$$$$);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -70,6 +71,9 @@ my $sth = $dbh->prepare($insertIndexSQL,{ora_check_sql => 0});
 #
 #  run as many times as needed
 
+my $xactCounter=0;
+my $commitFrequency=1000;
+
 while (<>) {
 
 	chomp;
@@ -113,6 +117,16 @@ index: $indexName
 		
 		# get the plan (basic plan only)
 		my $insertPlanResult = insertPlanText($dbh,$username,$sqlId,$planHashValue);
+
+		# insert the plan pairs
+		if ($insertPlanResult and $insertSqlResult) {
+			my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$username,$owner,$indexName,$planHashValue,$sqlId);
+
+		}
+
+		# avoid stressing out undo unnecessarily
+		$dbh->commit unless $xactCounter++ % $commitFrequency;
+
 	}
 
 }
@@ -270,18 +284,32 @@ order by 1};
 	
 }
 
+sub insertSqlPlanPair($$$$$$) {
 
+	my ($dbh,$schema,$owner,$indexName,$planHashValue,$sqlId) = @_;
 
+	my $insertSql = qq{insert into ${schema}.used_ct_index_sql_plan_pairs (owner, index_name, plan_hash_value, sql_id) values(?,?,?,?)};
 
+	# primary key (owner,index_name,plan_hash_value,sql_id)
+	#
+	my $existsSql = qq{select count(*) pair_count from ${schema}.used_ct_index_sql_plan_pairs 
+where owner = ?
+	and index_name = ?
+	and plan_hash_value = ?
+	and sql_id = ?};
 
+	my $existsSth=$dbh->prepare($existsSql);
+	$existsSth->execute($owner,$indexName,$planHashValue,$sqlId);
 
+	my ($pairFound) = $existsSth->fetchrow_array;
 
+	return $pairFound if $pairFound;
 
+	my $insertSth = $dbh->prepare($insertSql);
+	$insertSth->execute($owner,$indexName,$planHashValue,$sqlId);
 
+	1;
 
-
-
-
-
+}
 
 

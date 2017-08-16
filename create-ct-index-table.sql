@@ -29,7 +29,7 @@ create table &&u_schema..used_ct_index_sql_plan_pairs (
 	plan_hash_value number not null,
 	sql_id varchar2(13) not null,
 	primary key (owner,index_name,plan_hash_value,sql_id)
-)
+) organization index
 /
 
 create index &&u_schema..used_ct_index_sqlid_idx on &&u_schema..used_ct_index_sql_plan_pairs(sql_id);
