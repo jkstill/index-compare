@@ -245,6 +245,17 @@ Indexes that have not appeared there are shown as Unused.
 
 </pre>
 
+<h3>To Do</h3>
+
+<pre>
+
+- optionally output execution plans from gv$sql_plan
+- optionally output execution plans from dba_hist_sql_plan
+
+
+</pre>
+
+
 
   </pre>
 
