@@ -10,7 +10,7 @@ break on sql_text skip 1
 
 select 
 	replace(translate(sql_fulltext,'0123456789','999999999'),'9','') SQL_FULLTEXT 
-from v$sql 
+from gv$sql 
 where sql_id = '8jxxt9p48w0bs'
 group by replace(translate(sql_fulltext,'0123456789','999999999'),'9','') 
 /
