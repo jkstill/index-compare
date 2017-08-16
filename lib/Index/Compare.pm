@@ -4,6 +4,7 @@ package Index::Compare;
 use strict;
 use warnings;
 
+use IO::File;
 use Carp;
 use Data::Dumper;
 use Generic qw(seriesSum compareAry);
@@ -12,6 +13,7 @@ use Generic qw(seriesSum compareAry);
 sub getIdxPairInfo($$);
 sub genIdxDDL($$$$);
 sub genColGrpDDL($$$$$);
+sub createFile($$);
 
 my $progressDivisor=10;
 my $progressIndicator='.';
@@ -31,7 +33,6 @@ my %csvColByID = (
 	10 =>"Drop Immediately",
 	11	=>"Create ColGroup", # 'NA' or 'Y'
 	12	=>"Columns", # must always be the last field
-	#13	=>"SQL", # must always be last field
 );
 
 my %csvColByName = map { $csvColByID{$_} => $_ } keys %csvColByID;
@@ -312,35 +313,26 @@ sub getIdxPairInfo($$) {
 
 }
 
+sub createFile($$) {
+	my ($fileName, $fileMode) = @_;
+	my $fh = IO::File->new($fileName, $fileMode);
+	croak "Could not create $fileName\n" unless $fh;
+	return $fh;
+}
+
 sub genIdxDDL ($$$$) { 
-
 	my ($schema2Chk, $tableName, $indexName, $ddlDir) = @_;
-
-	my $idxDDLFile = "${tableName}-" . $indexName . '-invisible.sql';
-	my $idxDDLFh = IO::File->new("${ddlDir}/${idxDDLFile}",'w');
-
-	croak "Could not create $idxDDLFile\n" unless $idxDDLFh;
+	my $idxDDLFh = createFile("${ddlDir}/${tableName}-${indexName}-invisible.sql",'w');
 	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' invisible;';
-
-	$idxDDLFile = "${tableName}-" . $indexName . '-visible.sql';
-	$idxDDLFh = IO::File->new("${ddlDir}/${idxDDLFile}",'w');
-	croak "Could not create $idxDDLFile\n" unless $idxDDLFh;
+	$idxDDLFh = createFile("${ddlDir}/${tableName}-${indexName}-visible.sql",'w');
 	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' visible;';
-
 	close $idxDDLFh;
 }
 
 sub genColGrpDDL ($$$$$) {
-
 	my ($schema2Chk, $tableName, $indexName, $ddlDir, $columns) = @_;
-
 	my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
-
-	my $colgrpFile = "${tableName}-" . $indexName . '-colgrp.sql';
-
-	my $colgrpFH = IO::File->new("${ddlDir}/${colgrpFile}",'w');
-	croak "Could not create $colgrpFile\n" unless $colgrpFH;
-
+	my $colgrpFH = createFile("${ddlDir}/${tableName}-" . $indexName . '-colgrp.sql','w');
 	print $colgrpFH "$colgrpDDL\n";
 	close $colgrpFH;
 }
@@ -726,6 +718,14 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 			push @{$rptOut}, "ColGrp DDL:  $colgrpDDL\n";
 			$idxInfo[$csvColByName{'Create ColGroup'}] = 'Y';
 
+		} else {
+			if ($debug) {
+				print qq {
+					Drop Candidate: $idxInfo[$csvColByName{'Drop Candidate'}]
+					Column Dup%   : $idxInfo[$csvColByName{'Column Dup%'}]
+					Generate?     : $genColGrpDDL
+				};
+			}
 		}
 
 		if ($debug) {
