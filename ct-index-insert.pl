@@ -115,14 +115,14 @@ index: $indexName
 		print "adding $indexName\n";
 		# get the SQL text
 
-		my $insertSqlResult = insertSQLText($dbh,$username,$sqlId,$useAWR);
+		my $insertSqlResult = insertSQLText($dbh,$schemaName,$sqlId,$useAWR);
 		
 		# get the plan (basic plan only)
-		my $insertPlanResult = insertPlanText($dbh,$username,$sqlId,$planHashValue,$useAWR);
+		my $insertPlanResult = insertPlanText($dbh,$schemaName,$sqlId,$planHashValue,$useAWR);
 
 		# insert the plan pairs
 		if ($insertPlanResult and $insertSqlResult) {
-			my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$username,$owner,$indexName,$planHashValue,$sqlId);
+			my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$schemaName,$owner,$indexName,$planHashValue,$sqlId);
 
 		}
 
@@ -185,11 +185,16 @@ sub insertSQLText ($$$$) {
 
 	# first look in gv$sql
 
+	# this SQL is a workaround due to issues with sql_fulltext in some versions of oracle
+	# How to get full sql text statement from v$sql (Doc ID 437304.1)
+	# the dbms_lob.substr() was added due to sql text over 4k
+	# so now we are back where we started.
+	
 	my $gvSQL=q{select
-replace(translate(sql_fulltext,'0123456789','999999999'),'9','') SQL_FULLTEXT
+replace(translate(dbms_lob.substr(sql_fulltext,4000),'0123456789','999999999'),'9','') SQL_FULLTEXT
 from gv$sql
 where sql_id = ?
-group by replace(translate(sql_fulltext,'0123456789','999999999'),'9','') };
+group by replace(translate(dbms_lob.substr(sql_fulltext,4000),'0123456789','999999999'),'9','') };
 	my $gvSth=$dbh->prepare($gvSQL);
 	$gvSth->execute($sqlId);
 	my ($SQL)=$gvSth->fetchrow_array;
