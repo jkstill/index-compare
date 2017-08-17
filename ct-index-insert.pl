@@ -9,8 +9,8 @@ use Getopt::Long;
 use Data::Dumper;
 
 # prototypes
-sub insertSQLText ($$$);
-sub insertPlanText ($$$$);
+sub insertSQLText ($$$$);
+sub insertPlanText ($$$$$);
 sub insertSqlPlanPair($$$$$$);
 
 
@@ -24,11 +24,13 @@ my $sysdba=0;
 my $schemaName = 'AVAIL';
 my $help=0;
 my $debug=0;
+my $useAWR=0;
 
 GetOptions (
 		"database=s" => \$db,
 		"username=s" => \$username,
 		"schema=s" => \$schemaName,
+		"use-awr!" => \$useAWR,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
 		"password=s" => \$password,
@@ -113,10 +115,10 @@ index: $indexName
 		print "adding $indexName\n";
 		# get the SQL text
 
-		my $insertSqlResult = insertSQLText($dbh,$username,$sqlId);
+		my $insertSqlResult = insertSQLText($dbh,$username,$sqlId,$useAWR);
 		
 		# get the plan (basic plan only)
-		my $insertPlanResult = insertPlanText($dbh,$username,$sqlId,$planHashValue);
+		my $insertPlanResult = insertPlanText($dbh,$username,$sqlId,$planHashValue,$useAWR);
 
 		# insert the plan pairs
 		if ($insertPlanResult and $insertSqlResult) {
@@ -147,6 +149,7 @@ usage: $basename
   --username   target instance account name
   --password   prompt for password
   --schema     schema where used_ct_indexes table is located
+  --use-awr    allow looking for plans and SQL text in AWR
   --sysdba		logon as sysdba - do not specify database or username
 
   example:
@@ -159,9 +162,9 @@ usage: $basename
 
 
 
-sub insertSQLText ($$$) {
+sub insertSQLText ($$$$) {
 
-	my ($dbh,$schema,$sqlId) = @_;
+	my ($dbh,$schema,$sqlId,$useAWR) = @_;
 
 #print qq{
 
@@ -194,7 +197,7 @@ group by replace(translate(sql_fulltext,'0123456789','999999999'),'9','') };
 	$sqlFound = $SQL ? 1 : 0;
 	
 	# then look in dba_hist_sqltext
-	if (! $sqlFound ) {
+	if (! $sqlFound && $useAWR ) {
 		$awrSth->execute($sqlId);
 		($SQL)=$awrSth->fetchrow_array;
 		$sqlFound = $SQL ? 1 : 0;
@@ -212,9 +215,9 @@ group by replace(translate(sql_fulltext,'0123456789','999999999'),'9','') };
 }
 
 
-sub insertPlanText ($$$$) {
+sub insertPlanText ($$$$$) {
 
-	my ($dbh,$schema,$sqlId,$planHashValue) = @_;
+	my ($dbh,$schema,$sqlId,$planHashValue,$useAWR) = @_;
 
 	# sqlid used used just to simplify plan lookup
 	# not storing any execution metrics here
@@ -265,7 +268,7 @@ order by 1};
 	$planFound = $#planText >= 0 ? 1 : 0;
 	
 	# then look in dba_hist_sqltext
-	if (! $planFound ) {
+	if (! $planFound && $useAWR ) {
 		$awrSth->execute($planHashValue,$sqlId);
 		while (my $ary = $awrSth->fetchrow_arrayref ) {
 			push @planText,$ary->[0];

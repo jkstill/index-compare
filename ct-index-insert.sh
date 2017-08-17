@@ -53,6 +53,6 @@ echo
 # file format
 # timestamp,sql_id,plan_hash_value,inst_id,object_owner,object_name,objectnum
 
-( tail -n +2 csv/vsql-idx.csv  | cut -f2-3,5-6 -d, | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA
+( tail -n +2 csv/vsql-idx.csv  | cut -f2-3,5-6 -d, | sort -u)  | $ORACLE_HOME/perl/bin/perl ct-index-insert.pl --database $DB --username $USERNAME --password $PASSWORD --schema $SCHEMA --use-awr
 
 
