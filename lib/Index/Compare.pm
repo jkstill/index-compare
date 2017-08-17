@@ -13,6 +13,9 @@ use Generic qw(seriesSum compareAry);
 sub getIdxPairInfo($$);
 sub genIdxDDL($$$$);
 sub genColGrpDDL($$$$$);
+sub genSqlPlans($$$$$$);
+#sub genSqlText($$$$);
+#sub genPlanText($$$$);
 sub createFile($$);
 
 my $progressDivisor=10;
@@ -134,6 +137,7 @@ sub new {
 	#croak "Attribute SCHEMA is required in $class::new\n" unless $args{SCHEMA};
 
 	$args{IDX_CHK_TABLE} = 'avail.used_ct_indexes' unless defined($args{IDX_CHK_TABLE});
+
 	$args{RATIO} = 75 unless defined($args{RATIO});
 	#
 	# SQL to check the table of known used indexes
@@ -145,7 +149,7 @@ join dba_indexes i on i.owner = u.owner
 where u.owner = ?
 	and u.index_name = ?};
 
-	croak "Attribute DBH is required in $class::new\n" unless $args{DBH};
+	croak "Attribute DBH is required in \$class::new\n" unless $args{DBH};
 
 	return bless \%args, $class;
 }
@@ -320,9 +324,68 @@ sub createFile($$) {
 	return $fh;
 }
 
+#sub genSqlText($) {
+#my ($schemaName, $sqlId) = @_;
+		#my $sqlTextSql=qq(select sql_text from ${schemaName}.used_ct_index_sql where sql_id = ?);
+#}
+
+#sub genPlanText($) {
+		#my ($schemaName, $planHashValue) = @_;
+		#my $planTextSql=qq(select plan_text from ${schemaName}.used_ct_index_plans where plan_hash_value = ?);
+#}
+
+sub genSqlPlans($$$$$$) {
+	# chkTablesOwner refers to the owners of the tables storing the index info	
+	my ($dbh,$chkTablesOwner,$fileDir,$indexOwner,$tableName,$indexName) = @_;
+	my ($sqlId,$planHashValue);
+	#my $planTextSql=qq(select plan_text from ${chkTablesOwner}.used_ct_index_plans where plan_hash_value = ?);
+	my $planExistsSQL=qq{select count(1) index_chk from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
+	my $planExistsSth=$dbh->prepare($planExistsSQL);
+	$planExistsSth->execute($indexOwner,$indexName);
+	my ($indexFound) = $planExistsSth->fetchrow_array;
+	return unless $indexFound;
+
+	my $sqlPlansFh = createFile("${fileDir}/${indexOwner}-${tableName}-${indexName}.txt",'w');
+
+	my $planPairsSearchSQL=qq{select plan_hash_value, sql_id from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
+	my $planPairsSearchSth=$dbh->prepare($planPairsSearchSQL);
+	$planPairsSearchSth->execute($indexOwner,$indexName);
+
+	# LongReadLen should have been set in dbh by the calling script as we are reading CLOB
+	my $sqlSearchSQL = qq{select sql_text from ${chkTablesOwner}.used_ct_index_sql where sql_id = ?};
+	my $planSearchSQL = qq{select plan_text from ${chkTablesOwner}.used_ct_index_plans where plan_hash_value = ?};
+	my $sqlSearchSth = $dbh->prepare($sqlSearchSQL);
+	my $planSearchSth = $dbh->prepare($planSearchSQL);
+
+	while (my $ary = $planPairsSearchSth->fetchrow_arrayref ) {
+		($planHashValue,$sqlId) = @{$ary};
+
+		# now lookup up the plans and SQL
+		# the Foreign Key constraints guarantee at least one of each exists
+		$sqlSearchSth->execute($sqlId);
+		my ($sqlText) = $sqlSearchSth->fetchrow_array;
+
+		$planSearchSth->execute($planHashValue);
+		my ($planText) = $planSearchSth->fetchrow_array;
+
+		print $sqlPlansFh '=' x 80, "\n";
+		print $sqlPlansFh "SQL_ID: $sqlId\n";
+		print $sqlPlansFh "Plan Hash Value: $planHashValue\n";
+		print $sqlPlansFh "\n=== SQL Text: ===\n\n";
+		print $sqlPlansFh "$sqlText\n";
+		print $sqlPlansFh "\n=== Plan: ===\n\n";
+		print $sqlPlansFh "$planText\n";
+
+	}
+
+	close $sqlPlansFh;
+
+}
+
+
 sub genIdxDDL ($$$$) { 
 	my ($schema2Chk, $tableName, $indexName, $ddlDir) = @_;
-	my $idxDDLFh = createFile("${ddlDir}/${tableName}-${indexName}-invisible.sql",'w');
+	my $idxDDLFh = createFile("${ddlDir}/${schema2Chk}-${tableName}-${indexName}-invisible.sql",'w');
 	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' invisible;';
 	$idxDDLFh = createFile("${ddlDir}/${tableName}-${indexName}-visible.sql",'w');
 	print $idxDDLFh  'alter index ' . $schema2Chk . '.' . $indexName . ' visible;';
@@ -332,7 +395,7 @@ sub genIdxDDL ($$$$) {
 sub genColGrpDDL ($$$$$) {
 	my ($schema2Chk, $tableName, $indexName, $ddlDir, $columns) = @_;
 	my $colgrpDDL = qq{declare extname varchar2(30); begin extname := dbms_stats.create_extended_stats ( ownname => '$schema2Chk', tabname => '$tableName', extension => '($columns)'); dbms_output.put_line(extname); end;};
-	my $colgrpFH = createFile("${ddlDir}/${tableName}-" . $indexName . '-colgrp.sql','w');
+	my $colgrpFH = createFile("${ddlDir}/${schema2Chk}-${tableName}-" . $indexName . '-colgrp.sql','w');
 	print $colgrpFH "$colgrpDDL\n";
 	close $colgrpFH;
 }
@@ -344,6 +407,14 @@ sub processTabIdx {
 	my $self = shift;
 	my (%args) = @_;
 	my $dbh = $self->{DBH};
+
+	# derive owner from fully qualified table name
+
+	#print "IDX_CHK_TABLE: $self->{IDX_CHK_TABLE}\n";
+	my ($chkTablesOwner)=split(/\./,$self->{IDX_CHK_TABLE});
+	croak "IDX_CHK_TABLE must be a fully qualified name (owner.tablename) in processTabIdx()\n" unless $chkTablesOwner;
+	#print "chkTablesOwner: $chkTablesOwner\n";
+
 
 	my $dirs = $args{DIRS};
 	my ($tableOwner,$tableName) = split(/\./,$args{TABLE});
@@ -377,6 +448,7 @@ sub processTabIdx {
 
 	my $genIndexDDL = $self->{GEN_INDEX_DDL};
 	my $genColGrpDDL = $self->{GEN_COLGRP_DDL};
+	my $genSqlPlans = $self->{GEN_SQL_PLANS};
 
 	print qq {
 
@@ -693,6 +765,10 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 
 		# generate ddl for indexes - make invisible/visible
 		genIdxDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}],$dirs->{'indexDDL'}) if $genIndexDDL;
+
+		if ($genSqlPlans) {
+			genSqlPlans($dbh,$chkTablesOwner,$dirs->{'sqlPlanFiles'},$schema2Chk,$tableName,$idxInfo[$csvColByName{'Index Name'}]);
+		}
 
 =head1 create column group DDL as necessary
 		

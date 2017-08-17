@@ -47,10 +47,12 @@ my @rptOut=();
 my $genColGrpsDDL=1;
 my $genIndexDDL=1;
 my $genDDL=1;
+my $genSqlPlans=0;
 
 my %dirs = (
 	'colgrpDDL' => 'column-group-ddl',
 	'indexDDL' => 'index-ddl',
+	'sqlPlanFiles' => 'sql-plan-files',
 );
 
 # create dirs as needed
@@ -83,6 +85,7 @@ GetOptions (
 		"gen-column-groups!" => \$genColGrpsDDL,
 		"gen-index-ddl!" => \$genIndexDDL,
 		"gen-ddl!" => \$genDDL,
+		"gen-sql-plans!" => \$genSqlPlans,
 		"help!" => \$help,
 		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
@@ -143,6 +146,7 @@ my $dbh = DBI->connect(
 );
 
 die "Connect to  oracle failed \n" unless $dbh;
+$dbh->{LongReadLen} = 2*1024*1024;
 
 my $compare = new Index::Compare (
 	DBH => $dbh,
@@ -151,6 +155,7 @@ my $compare = new Index::Compare (
 	SCHEMA => $schema2Chk,
 	GEN_COLGRP_DDL => $genColGrpsDDL,
 	GEN_INDEX_DDL => $genIndexDDL,
+	GEN_SQL_PLANS => $genSqlPlans,
 );
 
 
@@ -245,6 +250,8 @@ usage: $basename - analyze schema indexes for redundancy
 
   --gen-ddl           generate both column group and index DDL - default is enabled
                       the only value for this option is to use --no-gen-ddl to disable both
+
+  --gen-sql-plans     output the SQL and the Plan if available
 
   --sysdba            connect as sysdba - do not specify database or username
 
