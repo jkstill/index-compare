@@ -1,0 +1,25 @@
+
+Previously the SQL Plans were gathered when ct-index-insert.pl was run via ct-index-insert.sh.
+
+Frequently the plans have already disappeared from v$sql_plan by that time.
+
+So now let's get the plans when we get the sql.
+
+vsql-idx.pl is already logged on to the database, so let's go ahead and check.
+
+A few things can be done at this time.
+
+1) check if the SQL already in the table - if so do not bother writing to the CSV file.
+   in fact this makes the CSV output superflous - make it an option we want to keep it
+2) may as well insert new SQL at this time.
+3) check to see if the plans already exist in the plan table. if there is a new plan, write it.
+4) use force_matching_signature for lookups rathen than SQL_ID when checking to see if 
+   we have already save SQL and/or execution plans.
+	The reason for this is that if there are many thousands of rows of SQL where the only difference
+	is the literal used in the WHERE clause, then we are keeping more more information than necessary.
+
+
+The byproduct of this change is that ct-index-insert.pl is no longer necessary.
+
+
+
