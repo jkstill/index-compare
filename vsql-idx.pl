@@ -4,6 +4,7 @@
 use warnings;
 use FileHandle;
 use DBI;
+use DBD::Oracle qw(:ora_session_modes);
 use strict;
 use Getopt::Long;
 use Data::Dumper;
@@ -14,7 +15,7 @@ use Generic qw(getPassword);
 # prototypes
 sub getScanSTH ($$);
 sub insertIdxInfo ($$$$);
-sub insertSQLText ($$$$);
+sub insertSQLText ($$$$$$);
 sub insertPlanText ($$$$$);
 sub insertSqlPlanPair($$$$$$);
 
@@ -24,9 +25,10 @@ my $db=undef; # left as undef for local sysdba connection
 # but just indicates whether a password will be necessary
 # if required, the password will be requested
 my $getPassword=undef;
-my $password='';
+my $password=undef;
 my $username=undef;
-my $sysdba=0;
+my $sysdba=undef;
+my $sessionMode=0;
 my $schemaName = 'AVAIL';
 my $help=0;
 my $debug=0;
@@ -37,17 +39,17 @@ GetOptions (
 		"username=s" => \$username,
 		"schema=s" => \$schemaName,
 		"use-awr!" => \$useAWR,
-		"sysdba!" => \$sysdba,
 		"debug!" => \$debug,
-		"password=s" => \$getPassword,
+		"sysdba!" => \$sysdba,
+		"password!" => \$getPassword,
 		"h|help!" => \$help
 ) or die usage(1);
 
 usage() if $help;
 
-$sysdba=2 if $sysdba;
-$schemaName = uc($schemaName);
 
+$sessionMode=ORA_SYSDBA if $sysdba;
+$schemaName = uc($schemaName);
 
 if ($getPassword) {
 	$password = getPassword();
@@ -62,7 +64,7 @@ my $dbh = DBI->connect(
 	{
 		RaiseError => 1,
 		AutoCommit => 0,
-		ora_session_mode => $sysdba
+		ora_session_mode => $sessionMode
 	}
 );
 
@@ -86,10 +88,11 @@ if ( -r $lastTimeStampFile ) {
 		
 }
 
+# this file no longer required, just acts as a log
 my $outputFile = 'csv/vsql-idx.csv';
 if ( ! -r $outputFile ) {
 	open OF,'>',$outputFile || die " cannot open $outputFile - $!\n";
-	print OF join(',',qw[timestamp sql_id plan_hash_value inst_id object_owner object_name objectnum force_matching_signature exact_matching_signature]), "\n";
+	print OF join(',',qw[timestamp sql_id child_number plan_hash_value inst_id object_owner object_name objectnum]), "\n";
 	close OF;
 }
 
@@ -122,28 +125,51 @@ my $scanSTH = getScanSTH($dbh,$lastTimeStamp);
 my $xactCounter=0;
 my $commitFrequency=1000;
 
-my $rowCount=0;
+my $recordCount=0;
 while( my $ary = $scanSTH->fetchrow_arrayref ) {
-	$rowCount++;
-	my ($timeStamp,$sqlID,$planHashValue,$instanceID,$objectOwner,$objectName,$objectNum) = @{$ary};
+ 	my ($timeStamp,$sqlID,$childNumber,$planHashValue,$instanceID,$objectOwner,$objectName,$objectNum,$exactMatchSig,$forceMatchSig) = @{$ary};
+
+	print qq{
+
+######## MAIN LOOP ###############
+
+   timestamp: $timeStamp
+      SQL_ID: $sqlID
+   plan hash: $planHashValue
+    instance: $instanceID
+       owner: $objectOwner
+  index name: $objectName
+  obj number: $objectNum
+
+} if $debug;
 
 	my $idxResult = insertIdxInfo($dbh,$schemaName,$objectOwner,$objectName);
 	if ($idxResult) {
-		print OF join(',',@{$ary}),"\n";
+		# write to file only if added to table (new index)
+		$recordCount++;
+		print OF join(',',@{$ary}[0..7]),"\n";
 	}
 
 	$lastTimeStamp = $timeStamp;
 
 	# get the SQL text
-	my $insertSqlResult = insertSQLText($dbh,$schemaName,$sqlID,$useAWR);
+	my $insertSqlResult = insertSQLText($dbh,$schemaName,$sqlID,$useAWR,$exactMatchSig,$forceMatchSig);
 	
 	# get the plan (basic plan only)
 	my $insertPlanResult = insertPlanText($dbh,$schemaName,$sqlID,$planHashValue,$useAWR);
 
+	if ($debug) {
+			printf "SQL_ID: $sqlID - plan was ";
+		if ($insertPlanResult) {
+			print "Found!\n";
+		} else {
+			print "NOT Found\n";
+		}
+	}
+
 	# insert the plan pairs
 	if ($insertPlanResult and $insertSqlResult) {
 		my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$schemaName,$objectOwner,$objectName,$planHashValue,$sqlID);
-
 	}
 
 	# avoid stressing out undo unnecessarily
@@ -153,7 +179,7 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
 
 open TS,'>',$lastTimeStampFile || die " cannot open $lastTimeStampFile for write - $!\n";
 
-print "Rows added: $rowCount\n";
+print "New index records added: $recordCount\n";
 
 print TS "$lastTimeStamp";
 
@@ -186,9 +212,9 @@ usage: $basename
 
 
 
-sub insertSQLText ($$$$) {
+sub insertSQLText ($$$$$$) {
 
-	my ($dbh,$schema,$sqlId,$useAWR) = @_;
+	my ($dbh,$schema,$sqlId,$useAWR,$exactMatchSig,$forceMatchSig) = @_;
 
 #print qq{
 
@@ -199,7 +225,7 @@ sub insertSQLText ($$$$) {
 
 	my $awrSQL=q{select sql_text from dba_hist_sqltext where sql_id = ?};
 	my $awrSth=$dbh->prepare($awrSQL);
-	my $insertSQL=qq{insert into ${schema}.used_ct_index_sql (sql_id,sql_text) values(?,?) };
+	my $insertSQL=qq{insert into ${schema}.used_ct_index_sql (sql_id,sql_text, exact_matching_signature, force_matching_signature) values(?,?,?,?) };
 	my $existsSQL=qq{select count(*) sql_count from ${schema}.used_ct_index_sql where sql_id = ?};
 
 	my $existsSth=$dbh->prepare($existsSQL);
@@ -237,12 +263,15 @@ group by replace(translate(dbms_lob.substr(sql_fulltext,4000),'0123456789','9999
 
 	# this statement should not fail as we already checked previous for this SQL_ID
 	my $insertSth=$dbh->prepare($insertSQL);
-	$insertSth->execute($sqlId,$SQL);
+	$insertSth->execute($sqlId,$SQL,$exactMatchSig,$forceMatchSig);
 
 	$sqlFound;
 
 }
 
+
+# return true if plan inserted or already exists
+# return false otherwise
 
 sub insertPlanText ($$$$$) {
 
@@ -283,9 +312,22 @@ order by 1};
 	my $existsSth=$dbh->prepare($existsSQL);
 	$existsSth->execute($planHashValue);
 	my ($planFound) = $existsSth->fetchrow_array;
+
+	print "PlanFound: $planFound\n" if $debug;
+
 	return $planFound if $planFound;  # no need to continue
 
 	# first look in gv$sql_plan
+
+	print qq{
+
+===========================
+gv\$sql_plan check:
+
+SQL_ID: $sqlId
+HASH  : $planHashValue
+
+} if $debug;
 
 	my $gvSth=$dbh->prepare($gvSQL);
 	$gvSth->execute($planHashValue,$sqlId);
@@ -295,6 +337,7 @@ order by 1};
 	}
 
 	$planFound = $#planText >= 0 ? 1 : 0;
+	print "GV\$SQL Plan Found: $planFound\n" if $debug;
 	
 	# then look in dba_hist_sqltext
 	if (! $planFound && $useAWR ) {
@@ -303,10 +346,14 @@ order by 1};
 			push @planText,$ary->[0];
 		}
 		$planFound = $#planText >= 0 ? 1 : 0;
+		print "AWR Plan Found: $planFound\n" if $debug;
 	}
+
+	print 'Plan Text: ', Dumper(\@planText) if $debug;
 
 	# return failure
 	return $planFound unless $planFound;
+
 
 	# this statement should not fail as we already checked previous for this SQL_ID
 	my $insertSth=$dbh->prepare($insertPlanSQL);
@@ -391,6 +438,7 @@ where owner = ?
 	1;
 
 }
+
 
 sub getScanSTH ($$) {
 	my ($dbh,$timestamp) = @_;
