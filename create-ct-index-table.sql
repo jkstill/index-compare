@@ -19,6 +19,8 @@ create table &&u_schema..used_ct_index_plans (
 create table &&u_schema..used_ct_index_sql (
 	sql_id varchar2(13) not null,
 	sql_text clob,
+	force_matching_signature number,
+	exact_matching_signature number,
 	primary key (sql_id)
 ) organization index
 /
@@ -32,6 +34,7 @@ create table &&u_schema..used_ct_index_sql_plan_pairs (
 ) organization index
 /
 
+create index &&u_schema..used_ct_index_sql_match_idx on &&u_schema..used_ct_index_sql(force_matching_signature);
 create index &&u_schema..used_ct_index_sqlid_idx on &&u_schema..used_ct_index_sql_plan_pairs(sql_id);
 create index &&u_schema..used_ct_index_plans_idx on &&u_schema..used_ct_index_sql_plan_pairs(plan_hash_value);
 
