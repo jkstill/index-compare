@@ -1,0 +1,46 @@
+
+Based on the tests in force-match-tests.sql, these are the states of the EXACT_MATCHING_SIGNATURE and FORCE_MATCHING_SIGNATURE columns for various combinations of literal values and bind variables in the WHERE clause.
+
+This applies to:
+
+- SQL statements where the normalized body of the SQL is identical
+  - the SQL_ID is different for each statement
+  - different literals are used in the WHERE clause
+- SQL statements that are identical
+  - SQL_ID is the same for each statement
+  - bind variables are used
+- SQL statements where the normalized body of the SQL is identical
+  - the SQL_ID is different for each statement
+  - different literals are used in the WHERE clause
+  - bind variables are also used in the WHERE clause
+
+This final one where force matching will never have any benefit has been documented on the interbutes by Karen Morton:
+http://karenmorton.blogspot.com/2012/05/force-matching-signature.html
+
+
+
+Not included: cases where either column (usually both I believe) are zero.
+This is true for DML that does not include a SELECT, and many (all?) recursive SQL.
+
+---------------------------------------------------------------------------------
+| literals | bind vars | force_matching_signature  | force_matching_signature   |
+|          |           | equal for SQL statements  | = exact_matching_signature |
+-----------+-----------+---------------------------+----------------------------|
+|    0     |     0     |     T                     |     T                      |
+-----------+-----------+---------------------------+----------------------------|
+|    0     |     1     |     T                     |     T                      |
+-----------+-----------+---------------------------+----------------------------|
+|    1     |     0     |     T                     |     F                      |
+-----------+-----------+---------------------------+----------------------------|
+|    1     |     1     |     F                     |     T                      |
+---------------------------------------------------------------------------------
+
+The effect of this is that when literals and bind variables are used together in a single SQL statement, even though it might appear that the force matching algorithm in Oracle should set the force_matching_signature to the same value when different executions of the SQL differ only by the literal values, it will not.
+
+The result is that if there are frequent uses of SQL in this manner, then all uses of the SQL will (must) be examined.
+
+It would be best to never mix the use of literal values with bind variables in a SQL statement.
+
+Not only for this program, but others as well.
+For instance, SQL Profiles cannot be applied to such SQL Statements, as the force_matching_signature will change with each change to the literal values.
+
