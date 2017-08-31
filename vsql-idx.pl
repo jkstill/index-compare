@@ -187,7 +187,8 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
 	# get the plan (basic plan only)
 	my $insertPlanResult = insertPlanText($dbh,$schemaName,$sqlID,$planHashValue,$useAWR);
 
-	$dbh->commit;
+	# sometimes useful to commit every row when debugging as it leaves some data in the tables for troubleshooting
+	#$dbh->commit;
 
 	if ($debug) {
 			printf "SQL_ID: $sqlID - plan was ";
