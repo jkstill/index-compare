@@ -8,9 +8,11 @@ use DBD::Oracle qw(:ora_session_modes);
 use strict;
 use Getopt::Long;
 use Data::Dumper;
+use Digest::MD5 qw(md5_hex);
 
 use lib './lib';
 use Generic qw(getPassword);
+use String::Tokenizer;
 
 # prototypes
 sub getScanSTH ($$);
@@ -18,6 +20,7 @@ sub insertIdxInfo ($$$$);
 sub insertSQLText ($$$$$$);
 sub insertPlanText ($$$$$);
 sub insertSqlPlanPair($$$$$$);
+sub sqlTokenizer($);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -464,7 +467,9 @@ sub getScanSTH ($$) {
 	where gsp.object_owner in (
    	select username
    	from dba_users
-   	where default_tablespace not in ('SYSTEM','SYSAUX')
+   	--where default_tablespace not in ('SYSTEM','SYSAUX')
+		where gs.force_matching_signature != 0
+			and gsp.object_owner not in ('SYS','SYSMAN')
 	)
    	and object_type = 'INDEX'
 		and timestamp > to_date(?,'yyyy-mm-dd hh24:mi:ss')
@@ -475,4 +480,29 @@ sub getScanSTH ($$) {
 	$scanSTH;
 
 }
+
+=head1 sqlTokenizer
+
+ Get an MD5 Hash to complement the force matching columns
+ used for SQL that contains both literals and bind variables
+ 
+ returns an MD5 Hex Value
+
+=cut
+
+
+sub sqlTokenizer($) {
+	my $sql = shift;
+
+	my $tokenizer = String::Tokenizer->new();
+	$tokenizer->tokenize($sql);
+	my @sql = $tokenizer->getTokens();
+
+	# remove content in single quotes
+	s/(').*(')/$1$2/ for @sql;
+
+	$sql = join(' ',@sql);
+	return md5_hex($sql);
+}
+
 

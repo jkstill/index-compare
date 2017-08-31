@@ -1,5 +1,11 @@
 
 set num 20
+set linesize 300
+set pagesize 100
+
+col child_number noprint
+col object# format 999999999
+col inst_id format 9999 head 'INST|ID'
 
 select distinct
    to_char(max(gsp.timestamp) over (partition by gs.sql_id),'yyyy-mm-dd hh24:mi:ss') timestamp
@@ -24,6 +30,8 @@ where gsp.object_owner in (
    select username
    from dba_users
    --where default_tablespace not in ('SYSTEM','SYSAUX')
+	where gs.force_matching_signature != 0
+	and gsp.object_owner not in ('SYS','SYSMAN')
 )
    and object_type = 'INDEX'
    --and timestamp > to_date(?,'yyyy-mm-dd hh24:mi:ss')
