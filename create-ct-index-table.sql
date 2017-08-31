@@ -21,6 +21,7 @@ create table &&u_schema..used_ct_index_sql (
 	sql_text clob,
 	force_matching_signature number,
 	exact_matching_signature number,
+	md5_hash varchar2(32),
 	primary key (sql_id)
 ) organization index
 /
@@ -30,13 +31,19 @@ create table &&u_schema..used_ct_index_sql_plan_pairs (
 	index_name varchar2(30) not null,
 	plan_hash_value number not null,
 	sql_id varchar2(13) not null,
+	force_matching_signature number,
+	md5_hash varchar2(32),
 	primary key (owner,index_name,plan_hash_value,sql_id)
 ) organization index
 /
 
 create index &&u_schema..used_ct_index_sql_match_idx on &&u_schema..used_ct_index_sql(force_matching_signature);
+create index &&u_schema..used_ct_index_sql_md5_idx on &&u_schema..used_ct_index_sql(md5_hash);
+
 create index &&u_schema..used_ct_index_sqlid_idx on &&u_schema..used_ct_index_sql_plan_pairs(sql_id);
 create index &&u_schema..used_ct_index_plans_idx on &&u_schema..used_ct_index_sql_plan_pairs(plan_hash_value);
+create index &&u_schema..used_ct_index_md5_idx on &&u_schema..used_ct_index_sql_plan_pairs(md5_hash);
+create index &&u_schema..used_ct_index_force_idx on &&u_schema..used_ct_index_sql_plan_pairs(force_matching_signature);
 
 alter table &&u_schema..used_ct_index_sql_plan_pairs add constraint sql_plan_pairs_parent_fk
 foreign key (owner,index_name) 
