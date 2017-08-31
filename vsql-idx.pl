@@ -17,10 +17,11 @@ use String::Tokenizer;
 # prototypes
 sub getScanSTH ($$);
 sub insertIdxInfo ($$$$);
-sub insertSQLText ($$$$$$);
+sub insertSQLText ($$$$$$$);
 sub insertPlanText ($$$$$);
-sub insertSqlPlanPair($$$$$$);
-sub sqlTokenizer($);
+sub insertSqlPlanPair($$$$$$$$);
+sub sqlMD5Hash($);
+sub getSqlText($$$$);
 
 
 my $db=undef; # left as undef for local sysdba connection
@@ -125,12 +126,33 @@ my $scanSTH = getScanSTH($dbh,$lastTimeStamp);
  
 =cut
 
-my $xactCounter=0;
+my $xactCounter=1;
 my $commitFrequency=1000;
 
 my $recordCount=0;
 while( my $ary = $scanSTH->fetchrow_arrayref ) {
  	my ($timeStamp,$sqlID,$childNumber,$planHashValue,$instanceID,$objectOwner,$objectName,$objectNum,$exactMatchSig,$forceMatchSig) = @{$ary};
+
+	my $sqlText = getSqlText($dbh,$instanceID,$sqlID,$useAWR);
+
+	my $md5Hex='';
+
+	# see FORCE-MATCHING-TRUTH-TABLE.txt
+	if ( 
+		$forceMatchSig == $exactMatchSig 
+			and
+		$sqlText =~ /:.[[:alpha:]]/
+			and 
+		$sqlText =~ /\'.*\'/
+		# this does not work - not sure why, have used positive lookahead before
+		#$sqlText =~ /(?=\'.*\')(?=:.*)/
+	)
+	{
+		#$md5Hex = sqlMD5Hash($sqlText);
+	}
+
+		$md5Hex = sqlMD5Hash($sqlText);
+
 
 	print qq{
 
@@ -143,6 +165,10 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
        owner: $objectOwner
   index name: $objectName
   obj number: $objectNum
+ exact match: $exactMatchSig
+ force match: $forceMatchSig
+         MD5: $md5Hex
+
 
 } if $debug;
 
@@ -156,10 +182,12 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
 	$lastTimeStamp = $timeStamp;
 
 	# get the SQL text
-	my $insertSqlResult = insertSQLText($dbh,$schemaName,$sqlID,$useAWR,$exactMatchSig,$forceMatchSig);
+	my $insertSqlResult = insertSQLText($dbh,$schemaName,$sqlID,$exactMatchSig,$forceMatchSig,$md5Hex,\$sqlText);
 	
 	# get the plan (basic plan only)
 	my $insertPlanResult = insertPlanText($dbh,$schemaName,$sqlID,$planHashValue,$useAWR);
+
+	$dbh->commit;
 
 	if ($debug) {
 			printf "SQL_ID: $sqlID - plan was ";
@@ -172,7 +200,7 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
 
 	# insert the plan pairs
 	if ($insertPlanResult and $insertSqlResult) {
-		my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$schemaName,$objectOwner,$objectName,$planHashValue,$sqlID);
+		my $insertPlanSqlPairResult = insertSqlPlanPair($dbh,$schemaName,$objectOwner,$objectName,$planHashValue,$sqlID,$forceMatchSig,$md5Hex);
 	}
 
 	# avoid stressing out undo unnecessarily
@@ -215,70 +243,52 @@ usage: $basename
 
 
 
-sub insertSQLText ($$$$$$) {
+sub insertSQLText ($$$$$$$) {
 
-	my ($dbh,$schema,$sqlId,$useAWR,$exactMatchSig,$forceMatchSig) = @_;
+	my ($dbh,$schema,$sqlID,$exactMatchSig,$forceMatchSig,$md5Hex,$sqlTextRef) = @_;
 
 #print qq{
 
 	#schema: $schema
-	#sql_id: $sqlId
+	#sql_id: $sqlID
 
 #};
 
-	my $awrSQL=q{select sql_text from dba_hist_sqltext where sql_id = ?};
-	my $awrSth=$dbh->prepare($awrSQL);
-	my $insertSQL=qq{insert into ${schema}.used_ct_index_sql (sql_id,sql_text, exact_matching_signature, force_matching_signature) values(?,?,?,?) };
-	my $existsSQL=qq{select count(*) sql_count from ${schema}.used_ct_index_sql where sql_id = ?};
+	my $insertSQL=qq{insert into ${schema}.used_ct_index_sql (sql_id,sql_text, exact_matching_signature, force_matching_signature, md5_hash) values(?,?,?,?,?) };
+	#my $existsSQL=qq{select count(*) sql_count from ${schema}.used_ct_index_sql where sql_id = ?};
+	my $existsSQL=qq{select count(*) sql_count from ${schema}.used_ct_index_sql where force_matching_signature = ? or md5_hash = ?};
 
 	my $existsSth=$dbh->prepare($existsSQL);
-	$existsSth->execute($sqlId);
+	#$existsSth->execute($sqlID);
+	$existsSth->execute($forceMatchSig,$md5Hex);
 	my ($sqlFound) = $existsSth->fetchrow_array;
+	#print "DEBUG 1:\n";
 	return $sqlFound if $sqlFound;  # no need to continue
+	#print "DEBUG 2:\n";
 
-	# first look in gv$sql
-
-	# this SQL is a workaround due to issues with sql_fulltext in some versions of oracle
-	# How to get full sql text statement from v$sql (Doc ID 437304.1)
-	# the dbms_lob.substr() was added due to sql text over 4k
-	# so now we are back where we started.
-	
-	my $gvSQL=q{select
-replace(translate(dbms_lob.substr(sql_fulltext,4000),'0123456789','999999999'),'9','') SQL_FULLTEXT
-from gv$sql
-where sql_id = ?
-group by replace(translate(dbms_lob.substr(sql_fulltext,4000),'0123456789','999999999'),'9','') };
-	my $gvSth=$dbh->prepare($gvSQL);
-	$gvSth->execute($sqlId);
-	my ($SQL)=$gvSth->fetchrow_array;
+	# could be an empty string
+	my $SQL = ${$sqlTextRef};
+	#print "DEBUG SQL: $SQL\n";
 
 	$sqlFound = $SQL ? 1 : 0;
 	
-	# then look in dba_hist_sqltext
-	if (! $sqlFound && $useAWR ) {
-		$awrSth->execute($sqlId);
-		($SQL)=$awrSth->fetchrow_array;
-		$sqlFound = $SQL ? 1 : 0;
-	}
-
 	# return failure
 	return $sqlFound unless $sqlFound;
 
 	# this statement should not fail as we already checked previous for this SQL_ID
 	my $insertSth=$dbh->prepare($insertSQL);
-	$insertSth->execute($sqlId,$SQL,$exactMatchSig,$forceMatchSig);
+	$insertSth->execute($sqlID,$SQL,$exactMatchSig,$forceMatchSig,$md5Hex);
 
 	$sqlFound;
 
 }
-
 
 # return true if plan inserted or already exists
 # return false otherwise
 
 sub insertPlanText ($$$$$) {
 
-	my ($dbh,$schema,$sqlId,$planHashValue,$useAWR) = @_;
+	my ($dbh,$schema,$sqlID,$planHashValue,$useAWR) = @_;
 
 	# sqlid used used just to simplify plan lookup
 	# not storing any execution metrics here
@@ -316,7 +326,7 @@ order by 1};
 	$existsSth->execute($planHashValue);
 	my ($planFound) = $existsSth->fetchrow_array;
 
-	print "PlanFound: $planFound\n" if $debug;
+	#print "PlanFound: $planFound\n" if $debug;
 
 	return $planFound if $planFound;  # no need to continue
 
@@ -327,13 +337,13 @@ order by 1};
 ===========================
 gv\$sql_plan check:
 
-SQL_ID: $sqlId
+SQL_ID: $sqlID
 HASH  : $planHashValue
 
 } if $debug;
 
 	my $gvSth=$dbh->prepare($gvSQL);
-	$gvSth->execute($planHashValue,$sqlId);
+	$gvSth->execute($planHashValue,$sqlID);
 	my @planText=();
 	while (my $ary = $gvSth->fetchrow_arrayref ) {
 		push @planText,$ary->[0];
@@ -344,7 +354,7 @@ HASH  : $planHashValue
 	
 	# then look in dba_hist_sqltext
 	if (! $planFound && $useAWR ) {
-		$awrSth->execute($planHashValue,$sqlId);
+		$awrSth->execute($planHashValue,$sqlID);
 		while (my $ary = $awrSth->fetchrow_arrayref ) {
 			push @planText,$ary->[0];
 		}
@@ -366,29 +376,59 @@ HASH  : $planHashValue
 	
 }
 
-sub insertSqlPlanPair($$$$$$) {
+=head1 insertSqlPlanPair()
 
-	my ($dbh,$schema,$owner,$indexName,$planHashValue,$sqlId) = @_;
+  If passed a new SQL_ID, but the MD5 matches an existing one, just return.
 
-	my $insertSql = qq{insert into ${schema}.used_ct_index_sql_plan_pairs (owner, index_name, plan_hash_value, sql_id) values(?,?,?,?)};
+
+
+=cut
+
+sub insertSqlPlanPair($$$$$$$$) {
+
+	my ($dbh,$schema,$owner,$indexName,$planHashValue,$sqlID,$forceMatchSig,$md5Hex) = @_;
+
+	my $insertSql = qq{insert into ${schema}.used_ct_index_sql_plan_pairs (owner, index_name, plan_hash_value, sql_id, force_matching_signature, md5_hash) values(?,?,?,?,?,?)};
 
 	# primary key (owner,index_name,plan_hash_value,sql_id)
 	#
-	my $existsSql = qq{select count(*) pair_count from ${schema}.used_ct_index_sql_plan_pairs 
+	my $planPairExistsSQL = qq{select count(*) pair_count from ${schema}.used_ct_index_sql_plan_pairs 
 where owner = ?
 	and index_name = ?
 	and plan_hash_value = ?
-	and sql_id = ?};
+	and ( sql_id = ? or force_matching_signature = ? or md5_hash  = ? )};
 
-	my $existsSth=$dbh->prepare($existsSql);
-	$existsSth->execute($owner,$indexName,$planHashValue,$sqlId);
+	my $existsSth=$dbh->prepare($planPairExistsSQL);
+	$existsSth->execute($owner,$indexName,$planHashValue,$sqlID,$forceMatchSig,$md5Hex);
 
 	my ($pairFound) = $existsSth->fetchrow_array;
 
 	return $pairFound if $pairFound;
 
+	# it is possible this SQL_ID does not exist in the parent table USED_CT_INDEX_SQL
+	# this is because we looked up by force_matching_signature and md5_hash in addition to SQL_ID, and may have found a match
+	# so not see if the paretn SQL_ID exists
+	# if it does not exist, look for one that matches the md5_hash or force_matching_signature
+	# then insert with newSqlID if it is not empty
+
+	my $sqlExistsSql = qq{select sql_id, force_matching_signature, md5_hash from ${schema}.used_ct_index_sql where ( sql_id = ? or force_matching_signature = ? or md5_hash  = ?) and rownum < 2 };
+	$existsSth=$dbh->prepare($sqlExistsSql);
+	$existsSth->execute($sqlID,$forceMatchSig,$md5Hex);
+	my ($newSqlID, $newForceMatch, $newMd5Hex) = $existsSth->fetchrow_array;
+
+	if ($newSqlID) {
+
+		# now look for the plan pair with the new values
+		$existsSth=$dbh->prepare($planPairExistsSQL);	
+		$existsSth->execute($owner,$indexName,$planHashValue,$newSqlID,$newForceMatch,$newMd5Hex);
+		($pairFound) = $existsSth->fetchrow_array;
+
+		($sqlID,$forceMatchSig,$md5Hex) = ($newSqlID, $newForceMatch, $newMd5Hex);
+	}
+
+
 	my $insertSth = $dbh->prepare($insertSql);
-	$insertSth->execute($owner,$indexName,$planHashValue,$sqlId);
+	$insertSth->execute($owner,$indexName,$planHashValue,$sqlID,$forceMatchSig,$md5Hex);
 
 	1;
 
@@ -469,19 +509,21 @@ sub getScanSTH ($$) {
    	from dba_users
    	--where default_tablespace not in ('SYSTEM','SYSAUX')
 		where gs.force_matching_signature != 0
-			and gsp.object_owner not in ('SYS','SYSMAN')
+			--and gsp.object_owner not in ('SYS','SYSMAN')
 	)
    	and object_type = 'INDEX'
 		and timestamp > to_date(?,'yyyy-mm-dd hh24:mi:ss')
+		--and gs.sql_id in ('1j8hs77mzf3jd','576vc50wnqhd6') -- from force-match-tests.log
 	order by 1,2,3};
 
 	my $scanSTH = $dbh->prepare($scanSQL,{ora_check_sql => 0});
 	$scanSTH->execute($lastTimeStamp);
+	#$scanSTH->execute();
 	$scanSTH;
 
 }
 
-=head1 sqlTokenizer
+=head1 sqlMD5Hash
 
  Get an MD5 Hash to complement the force matching columns
  used for SQL that contains both literals and bind variables
@@ -491,7 +533,7 @@ sub getScanSTH ($$) {
 =cut
 
 
-sub sqlTokenizer($) {
+sub sqlMD5Hash($) {
 	my $sql = shift;
 
 	my $tokenizer = String::Tokenizer->new();
@@ -503,6 +545,27 @@ sub sqlTokenizer($) {
 
 	$sql = join(' ',@sql);
 	return md5_hex($sql);
+}
+
+sub getSqlText($$$$) {
+	my ($dbh,$instanceID,$sqlID,$useAWR) = @_;
+	my $sql = q{select sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
+	my $sth = $dbh->prepare($sql);
+	$sth->execute($sqlID,$instanceID);
+	my ($sqlText) = $sth->fetchrow_array;
+	$sth->finish;
+
+	unless ($sqlText) {
+		if ($useAWR) {
+			my $awrSQL=q{select sql_text from dba_hist_sqltext where sql_id = ?};
+			my $awrSth=$dbh->prepare($awrSQL);
+			$awrSth->execute($sqlID);
+			($sqlText)=$awrSth->fetchrow_array;
+		}
+	}
+
+
+	return $sqlText;
 }
 
 

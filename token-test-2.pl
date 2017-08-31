@@ -208,16 +208,8 @@ sub getScanSTH ($) {
 
 }
 
-=head1 sqlMD5Hash
-
- Get an MD5 Hash to complement the force matching columns
- used for SQL that contains both literals and bind variables
- 
- returns an MD5 Hex Value
-
-=cut
-
 sub getSqlText($$$) {
+
 	my ($dbh,$sqlID,$instanceID) = @_;
 	my $sql = q{select sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
 
