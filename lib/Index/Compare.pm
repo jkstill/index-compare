@@ -337,7 +337,7 @@ sub createFile($$) {
 sub genSqlPlans($$$$$$) {
 	# chkTablesOwner refers to the owners of the tables storing the index info	
 	my ($dbh,$chkTablesOwner,$fileDir,$indexOwner,$tableName,$indexName) = @_;
-	my ($sqlId,$planHashValue);
+	my ($sqlId,$planHashValue,$forceMatchSig,$md5Hex);
 	#my $planTextSql=qq(select plan_text from ${chkTablesOwner}.used_ct_index_plans where plan_hash_value = ?);
 	my $planExistsSQL=qq{select count(1) index_chk from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
 	my $planExistsSth=$dbh->prepare($planExistsSQL);
@@ -347,7 +347,7 @@ sub genSqlPlans($$$$$$) {
 
 	my $sqlPlansFh = createFile("${fileDir}/${indexOwner}-${tableName}-${indexName}.txt",'w');
 
-	my $planPairsSearchSQL=qq{select plan_hash_value, sql_id from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
+	my $planPairsSearchSQL=qq{select plan_hash_value, sql_id, force_matching_signature, md5_hash from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
 	my $planPairsSearchSth=$dbh->prepare($planPairsSearchSQL);
 	$planPairsSearchSth->execute($indexOwner,$indexName);
 
@@ -358,10 +358,12 @@ sub genSqlPlans($$$$$$) {
 	my $planSearchSth = $dbh->prepare($planSearchSQL);
 
 	while (my $ary = $planPairsSearchSth->fetchrow_arrayref ) {
-		($planHashValue,$sqlId) = @{$ary};
+		($planHashValue,$sqlId,$forceMatchSig,$md5Hex) = @{$ary};
 
 		# now lookup up the plans and SQL
 		# the Foreign Key constraints guarantee at least one of each exists
+		# add MD5 and force_match here?
+----->>>> START HERE - adding md5 and force matching data
 		$sqlSearchSth->execute($sqlId);
 		my ($sqlText) = $sqlSearchSth->fetchrow_array;
 

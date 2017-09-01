@@ -57,6 +57,11 @@ The method used here:
 
 <h4>collect index stats from v$sql_plan:</h4>
   <pre>
+
+  vsql-idx.pl now does the work formerly done by ct-index-insert.pl, as well as some other things.
+
+  This section needs to be updated with a description of what is now done by this script.
+
   vsql-idx.sh LOCAL_ORACLE_HOME DATABASE USERNAME SCHEMA
 
   LOCAL_ORACLE_HOME: used to call oraenv to set local environment
@@ -90,6 +95,9 @@ The method used here:
 
 <h4>insert into used_ct_indexes table</h4>
   <pre>
+
+  DEPRECATED - now done by vsql-idx.pl
+
   ct-index-insert.sh LOCAL_ORACLE_HOME DATABASE USERNAME SCHEMA
 
   LOCAL_ORACLE_HOME: used to call oraenv to set local environment
