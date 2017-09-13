@@ -8,7 +8,7 @@ use DBD::Oracle qw(:ora_session_modes);
 use strict;
 use Getopt::Long;
 use Data::Dumper;
-use Time::HiRes;
+use Time::HiRes qw( gettimeofday );
 use Digest::MD5 qw(md5_hex);
 
 use lib './lib';
