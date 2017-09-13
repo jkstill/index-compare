@@ -553,7 +553,7 @@ sub sqlMD5Hash($) {
 
 sub getSqlText($$$$) {
 	my ($dbh,$instanceID,$sqlID,$useAWR) = @_;
-	my $sql = q{select dbms_lob.substr(sql_fulltext,1,MAX_LOG_LEN) sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
+	my $sql = q{select dbms_lob.substr(sql_fulltext,1,} . MAX_LOB_LEN . q{) sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
 	my $sth = $dbh->prepare($sql);
 	$sth->execute($sqlID,$instanceID);
 	my ($sqlText) = $sth->fetchrow_array;
