@@ -8,6 +8,7 @@ use DBD::Oracle qw(:ora_session_modes);
 use strict;
 use Getopt::Long;
 use Data::Dumper;
+use Time::HiRes;
 use Digest::MD5 qw(md5_hex);
 
 use lib './lib';
@@ -136,7 +137,7 @@ while( my $ary = $scanSTH->fetchrow_arrayref ) {
  	my ($timeStamp,$sqlID,$childNumber,$planHashValue,$instanceID,$objectOwner,$objectName,$objectNum,$exactMatchSig,$forceMatchSig) = @{$ary};
 
 	my $sqlText = getSqlText($dbh,$instanceID,$sqlID,$useAWR);
-
+	
 	my $md5Hex='';
 
 	# see FORCE-MATCHING-TRUTH-TABLE.txt
@@ -568,6 +569,11 @@ sub getSqlText($$$$) {
 		}
 	}
 
+	# if for some reason SQL is not found, avoid error caused by returning uninitialized
+	unless ($sqlText) {
+		my @t = gettimeofday();
+		$sqlText = 'NA-' . $t[0] . $t[1];
+	}
 
 	return $sqlText;
 }
