@@ -80,6 +80,6 @@ do
 	sleep 300
 
 	(( maxIterations-- ))
-done >> vsql-idx_nohup.out &
+done >> vsql-idx_nohup.out 2>&1 &
 
 
