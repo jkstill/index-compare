@@ -10,6 +10,8 @@ use Getopt::Long;
 use Data::Dumper;
 use Digest::MD5 qw(md5_hex);
 
+use constant MAX_LOB_LEN => 2 * 2**20;
+
 use lib './lib';
 use Generic qw(getPassword);
 use String::Tokenizer;
@@ -79,7 +81,8 @@ die "Connect to  oracle failed \n" unless $dbh;
 #$dbh->{ora_check_sql} = 0;
 $dbh->{RowCacheSize} = 100;
 # 64k for SQL statements is enough!
-$dbh->{LongReadLen} = 64*1024;
+# update - it is not enougn - changing to 2m
+$dbh->{LongReadLen} = MAX_LOB_LEN;
 
 my  $lastTimeStampFile='./last-timestamp.txt';
 my  $lastTimeStamp = '2017-01-01 00:00:00';
@@ -550,7 +553,7 @@ sub sqlMD5Hash($) {
 
 sub getSqlText($$$$) {
 	my ($dbh,$instanceID,$sqlID,$useAWR) = @_;
-	my $sql = q{select sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
+	my $sql = q{select dbms_lob.substr(sql_fulltext,1,MAX_LOG_LEN) sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
 	my $sth = $dbh->prepare($sql);
 	$sth->execute($sqlID,$instanceID);
 	my ($sqlText) = $sth->fetchrow_array;
