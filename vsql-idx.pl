@@ -38,7 +38,7 @@ my $schemaName = 'AVAIL';
 my $help=0;
 my $debug=0;
 my $useAWR=0;
-my $MAX_LOB_LEN = 32767;
+my $MAX_LOB_LEN = 2 * 2**20;
 
 GetOptions (
 		"database=s" => \$db,
@@ -80,9 +80,11 @@ die "Connect to  oracle failed \n" unless $dbh;
 # but IS a prepare handle attribute
 #$dbh->{ora_check_sql} = 0;
 $dbh->{RowCacheSize} = 100;
-# 64k for SQL statements is enough!
+# 2M for SQL statements is enough!
 # update - it is not enougn - changing to 2m
 $dbh->{LongReadLen} = $MAX_LOB_LEN;
+# statements limited to 2M in size - portion after $MAX_LOB_LEN is truncated
+$dbh->{LongTruncOk}=1;
 
 my  $lastTimeStampFile='./last-timestamp.txt';
 my  $lastTimeStamp = '2017-01-01 00:00:00';
@@ -553,8 +555,7 @@ sub sqlMD5Hash($) {
 
 sub getSqlText($$$$) {
 	my ($dbh,$instanceID,$sqlID,$useAWR) = @_;
-	# if MAX_LOB_LEN gt 32767 then dbms_lob.substr returns NULL
-	my $sql = q{select dbms_lob.substr(sql_fulltext,1,} . $MAX_LOB_LEN . q{) sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
+	my $sql = q{select sql_fulltext from gv$sqlstats where sql_id = ? and inst_id = ?};
 	my $sth = $dbh->prepare($sql);
 	$sth->execute($sqlID,$instanceID);
 	my ($sqlText) = $sth->fetchrow_array;
