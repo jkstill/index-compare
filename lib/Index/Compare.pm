@@ -54,7 +54,7 @@ from dba_tables
 where owner in (
 		select username
 		from dba_users
-		--where default_tablespace not in ('SYSTEM','SYSAUX')
+		where default_tablespace not in ('SYSTEM','SYSAUX')
 	)
 	and table_name not like 'DR$%$I%' -- Text Indexes
 	and owner like ?
