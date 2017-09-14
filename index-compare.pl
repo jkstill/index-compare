@@ -34,6 +34,7 @@ my $csvOut=0;
 my %csvIndexes=(); 
 # push all report output to an array
 my @rptOut=();
+my $MAX_LOB_LEN=2 * 2**20;
 
 # SQL statements are all written to separate files
 # some SQL requires commas which messes up our comma delimited file
@@ -106,6 +107,7 @@ if ($debug ) {
 	print "\n";
 	print "Generate Column Groups: " , $genColGrpsDDL ? 'Yes' : 'No' , "\n";
 	print "    Generate Index DDL: " , $genIndexDDL ? 'Yes' : 'No' , "\n";
+	print "    Generate SQL Plans: " , $genSqlPlans ? 'Yes' : 'No' , "\n";
 	print "\n";
 
 	#exit;
@@ -146,7 +148,9 @@ my $dbh = DBI->connect(
 );
 
 die "Connect to  oracle failed \n" unless $dbh;
-$dbh->{LongReadLen} = 2*1024*1024;
+$dbh->{LongReadLen} = $MAX_LOB_LEN;
+$dbh->{LongTruncOk}=1;
+
 
 my $compare = new Index::Compare (
 	DBH => $dbh,

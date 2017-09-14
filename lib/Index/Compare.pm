@@ -13,7 +13,7 @@ use Generic qw(seriesSum compareAry);
 sub getIdxPairInfo($$);
 sub genIdxDDL($$$$);
 sub genColGrpDDL($$$$$);
-sub genSqlPlans($$$$$$);
+sub genSqlPlans($$$$$$$);
 #sub genSqlText($$$$);
 #sub genPlanText($$$$);
 sub createFile($$);
@@ -54,7 +54,7 @@ from dba_tables
 where owner in (
 		select username
 		from dba_users
-		where default_tablespace not in ('SYSTEM','SYSAUX')
+		--where default_tablespace not in ('SYSTEM','SYSAUX')
 	)
 	and table_name not like 'DR$%$I%' -- Text Indexes
 	and owner like ?
@@ -334,10 +334,9 @@ sub createFile($$) {
 		#my $planTextSql=qq(select plan_text from ${schemaName}.used_ct_index_plans where plan_hash_value = ?);
 #}
 
-sub genSqlPlans($$$$$$) {
+sub genSqlPlans($$$$$$$) {
 	# chkTablesOwner refers to the owners of the tables storing the index info	
-	my ($dbh,$chkTablesOwner,$fileDir,$indexOwner,$tableName,$indexName) = @_;
-	my ($sqlId,$planHashValue,$forceMatchSig,$md5Hex);
+	my ($dbh,$debug,$chkTablesOwner,$fileDir,$indexOwner,$tableName,$indexName) = @_;
 	#my $planTextSql=qq(select plan_text from ${chkTablesOwner}.used_ct_index_plans where plan_hash_value = ?);
 	my $planExistsSQL=qq{select count(1) index_chk from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
 	my $planExistsSth=$dbh->prepare($planExistsSQL);
@@ -347,36 +346,63 @@ sub genSqlPlans($$$$$$) {
 
 	my $sqlPlansFh = createFile("${fileDir}/${indexOwner}-${tableName}-${indexName}.txt",'w');
 
-	my $planPairsSearchSQL=qq{select plan_hash_value, sql_id, force_matching_signature, md5_hash from ${chkTablesOwner}.used_ct_index_sql_plan_pairs where owner = ? and index_name = ?};
-	my $planPairsSearchSth=$dbh->prepare($planPairsSearchSQL);
-	$planPairsSearchSth->execute($indexOwner,$indexName);
+	my $planSearchSQL = qq{select
+	sql.md5_hash
+	--, i.owner
+	--, i.index_name
+	, sql.sql_id
+	, sql.force_matching_signature
+	, sql.exact_matching_signature
+	, sql.sql_text
+	, pl.plan_hash_value
+	, pl.plan_text
+from ${chkTablesOwner}.used_ct_indexes i
+join ${chkTablesOwner}.used_ct_index_sql_plan_pairs pp on pp.owner = i.owner
+	and pp.index_name = i.index_name
+join ${chkTablesOwner}.used_ct_index_sql sql on sql.md5_hash = pp.md5_hash
+join ${chkTablesOwner}.used_ct_index_plans pl on pl.plan_hash_value = pp.plan_hash_value
+where i.owner = ?
+	and i.index_name = ?
+order by sql.md5_hash, pl.plan_hash_value};
 
-	# LongReadLen should have been set in dbh by the calling script as we are reading CLOB
-	my $sqlSearchSQL = qq{select sql_text from ${chkTablesOwner}.used_ct_index_sql where sql_id = ?};
-	my $planSearchSQL = qq{select plan_text from ${chkTablesOwner}.used_ct_index_plans where plan_hash_value = ?};
-	my $sqlSearchSth = $dbh->prepare($sqlSearchSQL);
 	my $planSearchSth = $dbh->prepare($planSearchSQL);
+	$planSearchSth->execute($indexOwner,$indexName);
 
-	while (my $ary = $planPairsSearchSth->fetchrow_arrayref ) {
-		($planHashValue,$sqlId,$forceMatchSig,$md5Hex) = @{$ary};
+	my @na=(); push @na, 'NA' for 1..10;
+	my ($md5hashCompare, $sqlIdCompare, $planHashValueCompare) = @na;
 
-		# now lookup up the plans and SQL
-		# the Foreign Key constraints guarantee at least one of each exists
-		# add MD5 and force_match here?
------>>>> START HERE - adding md5 and force matching data
-		$sqlSearchSth->execute($sqlId);
-		my ($sqlText) = $sqlSearchSth->fetchrow_array;
+	print qq{
 
-		$planSearchSth->execute($planHashValue);
-		my ($planText) = $planSearchSth->fetchrow_array;
+Getting SQL plans
+owner: $indexOwner
+index: $indexName
 
-		print $sqlPlansFh '=' x 80, "\n";
-		print $sqlPlansFh "SQL_ID: $sqlId\n";
-		print $sqlPlansFh "Plan Hash Value: $planHashValue\n";
-		print $sqlPlansFh "\n=== SQL Text: ===\n\n";
-		print $sqlPlansFh "$sqlText\n";
-		print $sqlPlansFh "\n=== Plan: ===\n\n";
-		print $sqlPlansFh "$planText\n";
+} if $debug;
+
+
+	while (my $ary = $planSearchSth->fetchrow_arrayref ) {
+		my ($md5Hash, $sqlID, $forceMatchSig, $exactMatchSig, $sqlText, $planHashValue, $planText) = @{$ary};
+
+		if ($md5hashCompare ne $md5Hash) {
+			$md5hashCompare = $md5Hash;
+			print $sqlPlansFh '=' x 80, "\n";
+			print $sqlPlansFh "== md5: $md5Hash\n";
+
+		}
+
+		if ($sqlIdCompare ne $sqlID) {
+			$sqlIdCompare = $sqlID;
+			print $sqlPlansFh "SQL_ID: $sqlID\n";
+			print $sqlPlansFh "\n=== SQL Text: ===\n\n";
+			print $sqlPlansFh "$sqlText\n";
+		}
+
+		if ($planHashValueCompare ne $planHashValue) {
+			$planHashValueCompare = $planHashValue;
+			print $sqlPlansFh "Plan Hash Value: $planHashValue\n";
+			print $sqlPlansFh "\n=== Plan: ===\n\n";
+			print $sqlPlansFh "$planText\n";
+		}
 
 	}
 
@@ -457,6 +483,7 @@ sub processTabIdx {
 	sub processTabIdx
 	 genIndexDDL: $genIndexDDL
 	genColGrpDDL: $genColGrpDDL
+	 genSqlPlans: $genSqlPlans
 	
 	} if $debug;
 
@@ -769,7 +796,7 @@ idxInfo[csvColByName{'Index Name'}] : $idxInfo[$csvColByName{'Index Name'}]
 		genIdxDDL($schema2Chk, $tableName, $idxInfo[$csvColByName{'Index Name'}],$dirs->{'indexDDL'}) if $genIndexDDL;
 
 		if ($genSqlPlans) {
-			genSqlPlans($dbh,$chkTablesOwner,$dirs->{'sqlPlanFiles'},$schema2Chk,$tableName,$idxInfo[$csvColByName{'Index Name'}]);
+			genSqlPlans($dbh,$debug,$chkTablesOwner,$dirs->{'sqlPlanFiles'},$schema2Chk,$tableName,$idxInfo[$csvColByName{'Index Name'}]);
 		}
 
 =head1 create column group DDL as necessary
