@@ -263,9 +263,99 @@ Indexes that have not appeared there are shown as Unused.
 
 </pre>
 
+<h2>Utilities</h2>
+
+Read large directory entry tables when ls cannot
+
+These can be useful determine how many files are in the index-ddl directory when there are many files.
+
+<h3>getdents: show all directory entries</h3>
+
+<pre>
+  ./getdents [some directory]
+
+~/oracle/utilities/getdents $ ./getdents
+--------------- nread=296 ---------------
+   i-node# file type    d_reclen                d_off d_name
+   4460613 regular            40  1318648526085781404 getdents-terse
+   4460611 directory          24  1911077624233088714 .git
+   4459384 regular            32  1932872112554708992 README.md
+   4459388 regular            32  4694681258015450928 getdents.c
+   4459383 regular            32  4970382855881317507 getdents
+   4460527 regular            40  7034733065521167176 getdents-terse.c
+   4459382 directory          24  7122204098038305193 .
+   4459381 directory          24  9223372036854775807 ..
 
 
-  </pre>
+</pre>
+
+
+<h3>getdents-terse: show only inode and name for regular files only</h3>
+
+<pre>
+
+  ./getdents-terse [some directory]
+
+4460613     getdents-terse
+4459384     README.md
+4459388     getdents.c
+4459383     getdents
+4460527     getdents-terse.c
+
+</pre>
+
+
+<h3>Command to create new binaries:</h3>
+
+The included binaries were built on Unbuntu 16 64bit and may or may not work as is.
+
+<pre>
+
+gcc -o getdents getdents.c
+
+gcc -o getdents-terse getdents-terse.c
+
+</pre>
+
+<h3>Example usage</h3>
+
+<pre>
+
+
+index-compare: time ./getdents-terse column-group-ddl | wc -l
+149696
+
+real	0m0.201s
+user	0m0.053s
+sys	0m0.179s
+
+
+index-compare: time ls -1 column-group-ddl | wc -l
+149696
+
+real	0m2.184s
+user	0m1.327s
+sys	0m0.219s
+
+index-compare: time ./getdents-terse index-ddl | wc -l
+332340
+
+real	0m0.464s
+user	0m0.140s
+sys	0m0.380s
+    
+index-compare: time ls -1 index-ddl | wc -l
+332340
+
+real	0m2.382s
+user	0m2.016s
+sys	0m0.410s
+
+
+</pre>
+
+
+</pre>
 
 
 
