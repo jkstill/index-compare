@@ -257,9 +257,11 @@ Indexes that have not appeared there are shown as Unused.
 
 <pre>
 
-- optionally output execution plans from gv$sql_plan
-- optionally output execution plans from dba_hist_sql_plan
-
+- done - optionally output execution plans from gv$sql_plan
+- done - optionally output execution plans from dba_hist_sql_plan
+- --no-squash option for index-compare.pl  
+  check for current output files and do not overwrite
+  keep in mind the new files may have additional contents
 
 </pre>
 
