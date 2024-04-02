@@ -15,6 +15,9 @@ Each iteration will check for new entries as of the previous timestamp
 
 JKS-DOC
 
+# change maxIterations and sleepSeconds as needed
+maxIterations=110
+sleepSeconds=600
 
 # trap exits from parameter tests
 trap "usage;exit 1" 0
@@ -53,9 +56,9 @@ PATH=/usr/local/bin:$PATH
 
 . /usr/local/bin/oraenv <<< $ORACLE_SID
 
-# run every 5 minutes - 288 per day
+# run time is 2-3 minutes after the initial run of 10-15 minutes
+# run every 10 minutes: ~110 per day
 
-maxIterations=144
 
 # get the password
 
@@ -77,9 +80,9 @@ do
 
 	echo $PASSWORD | $ORACLE_HOME/perl/bin/perl vsql-idx.pl --database $DB --username $USERNAME --password 
 	echo Iteration: $maxIterations
-	sleep 300
+	sleep $sleepSeconds
 
 	(( maxIterations-- ))
-done >> vsql-idx_nohup.out &
+done >> vsql-idx_nohup.out 2>&1 &
 
 
